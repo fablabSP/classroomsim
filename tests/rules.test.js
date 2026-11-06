@@ -76,7 +76,13 @@ test('course admin: passcode required, read-only, cannot list sessions without i
   await assertSucceeds(getDocs(query(collection(a, 'sessions'), orderBy('createdAt', 'desc'), limit(10))));
   await assertSucceeds(getDoc(doc(a, `${P}/engine/state`)));
   await assertSucceeds(getDoc(doc(a, `${P}/secret/pin`)));
-  await assertFails(setDoc(doc(a, `${P}/engine/state`), { data: '{}' }));
+  await assertFails(updateDoc(doc(a, P), { participantsUntil: 1 }));
+  await assertFails(setDoc(doc(a, `${P}/views/p1`), { x: 1 }));
+  await assertSucceeds(setDoc(doc(a, 'settings/grading'), { minLevel: 3, minAreas: 4, noneBelow: 2, required: [] }));
+  await assertFails(setDoc(doc(a, 'settings/other'), { x: 1 }));
+  const o = env.authenticatedContext('owner').firestore();
+  await assertFails(setDoc(doc(o, 'settings/grading'), { minAreas: 1 }));
+  await assertSucceeds(getDoc(doc(o, 'settings/grading')));
   await assertFails(getDoc(doc(a, 'config/admin')));
   await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'config/admin'), { code: 'Changed-Pass-0002' }));
   await assertFails(getDoc(doc(a, `${P}/engine/state`)));

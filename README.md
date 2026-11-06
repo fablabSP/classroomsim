@@ -1,4 +1,4 @@
-# ClassroomSim 3.5
+# ClassroomSim 3.7
 
 Classroom role-play practice and Lead Trainer assessment for the CET *Leading and Assessing AI-Enabled Learning Experiences* course.
 
@@ -9,6 +9,20 @@ There are two interfaces:
 It is a web app **hosted on GitHub Pages**, built and published by GitHub itself. Nothing runs on your computer, and nothing is installed on phones: everyone just opens the link (or scans the QR code) in their normal web browser. **Firebase** (free Spark plan, no credit card) is used only as the real-time database, so cards reach phones instantly.
 
 ---
+
+## What's new in 3.7.1
+- Updated card art: scenario icons now match the role icons of the same colour (✕ red, ✋ yellow, ? blue, ! black, ✓ green), and the Support Trainer card is named to match the app.
+- Card images carry the app version in their link, so phones load new art straight after an update instead of a cached copy.
+
+## What's new in 3.7
+- **New card artwork.** Every role, trainer and scenario card now uses the illustrated SDKit-style designs, with the three new backs (Role, Trainer, Scenario). Text sits in each card's white panel, which grows downwards when a card has more text.
+
+## What's new in 3.6
+- **Pop-ups no longer close by accident** when you drag across text (e.g. to select it) and let go on the dark background.
+- **PDF reports.** Records → *This session (PDF)* or *All my sessions*. Course admin → *PDF report* for one session or *PDF of all sessions*. Each PDF has a summary of every round, then each round's score card result, scores, feedback, card ratings, notes and change history.
+- **Automatic score card.** Review → Outcome shows which rubric areas meet the standard and suggests Competent or Not yet competent. The course admin sets the rules. Evaluators and the admin can override it with a reason, and every change is in the change history.
+- **Course scenario cards from CSV.** Course admin → Scenario cards → Upload CSV. They are added to every session's deck.
+- **Better admin search.** Search by evaluator name and date (e.g. `koh`, `6 Nov`, `2026-11-06`, `06/11/2026`) as well as code, cohort and topic.
 
 ## What's new in 3.5
 - **Card deck for evaluators.** Tap 🂠 in the top bar (or Records → Card deck) to see every role, trainer and scenario card, filter by type and colour, and flip between fronts and backs.
@@ -81,7 +95,7 @@ All earlier features are kept: guided setup with "What to do now", automatic or 
 4. **Build → Authentication → Get started → Sign-in method → Anonymous → Enable → Save**.
 5. **Authentication → Settings → Authorized domains → Add domain** → `<your-github-username>.github.io`.
 5b. **Recommended: set a start passcode** so only your evaluators can start sessions. In **Firestore Database → Data**: **Start collection** `config` → Document ID `access` → add a field `startCode` (string) = a passcode you choose, e.g. `FabLab-Eval-2026`. Give it only to your evaluators. To change it later, edit that field. To turn it off, delete the `access` document.
-5c. **Optional: turn on the course admin view.** In **Firestore Database → Data**, inside the `config` collection add a document `admin` with a field `code` (string) = a long admin passcode, at least 16 characters and different from the start passcode (e.g. four random words plus a number). Then anyone with that passcode can open **Evaluator → Course admin** (or **Records → Course admin view**) and read every session. It is read-only: admins cannot change any record. Changing the `code` field signs every admin out on every device at once. Delete the `admin` document to switch the feature off.
+5c. **Optional: turn on the course admin view.** In **Firestore Database → Data**, inside the `config` collection add a document `admin` with a field `code` (string) = a long admin passcode, at least 16 characters and different from the start passcode (e.g. four random words plus a number). Then anyone with that passcode can open **Evaluator → Course admin** (or **Records → Course admin view**) and read every session. Admins can read everything, and can change only round results (with a reason), the score card rules and the course scenario cards. Changing the `code` field signs every admin out on every device at once. Delete the `admin` document to switch the feature off.
 6. **Project settings** (gear icon) → **Your apps** → click the web icon `</>` → give it a nickname → **Register app**. Keep the `firebaseConfig` box open: you need it in Part B.
 
 ### Part B: GitHub (the website)
@@ -116,6 +130,7 @@ That's it. Every later change you commit (for example new scenario cards in `src
 ---
 
 ## Files
+- `src/pdf.js` builds the PDF report (bundled to `public/pdf.js`, loaded only when needed).
 | Path | What it is |
 |---|---|
 | `src/scenarios.js`, `src/quicktags.js` | Scenario cards and quick-log items (edit these to customise) |
@@ -180,9 +195,31 @@ To change the default of 60 minutes, edit `PARTICIPANT_MINUTES` in `src/logic.js
 - The tick is a device feature I could not test here. Try it on an iPhone (Settings → Sounds & Haptics → System Haptics must be on).
 
 ## Course admin view
+- **What admins can change:** a round's result (override, with a reason), the score card rules and the course scenario cards. Nothing else: they cannot edit scores, notes, evaluators or participants.
 - **What admins see:** every session (newest first, searchable), each session's evaluators, participants, rounds, scores, Lead and Support feedback, scenario card ratings and who rated them, observation notes and who wrote them, the change history of every saved result, the event log, the evaluator code, and every raw database document. The **All assessments** tab puts every round from every session in one table with a CSV download.
 - **How it is protected:** the passcode lives in `config/admin`, which the app can never read. Signing in writes a proof document (`admins/{device id}`) that the database rules only accept if it matches. On every read the rules check the proof still matches, so changing the passcode cuts everyone off immediately. Admins have no write access to any session.
 - **Cost:** opening the list reads about 50 documents. Opening one session reads every document in it (about 2 per participant). Loading **All assessments** reads about 3 documents per session. Well within the free 50,000 reads a day.
+
+## Automatic score card
+- Default rule: **Competent when at least 4 of 6 areas score 3 or higher and no area scores below 2.** Not seen does not count towards the 4.
+- Course admin → **Score card rules** lets you change the score that meets the standard (2, 3 or 4), how many areas need it (1 to 6), the floor (none, 2 or 3) and any must-pass areas.
+- Each saved round keeps the rule it was graded with, so changing the rules later doesn't silently change past results. Saving that round again regrades it with the current rules.
+- **Override:** on Review, pick Competent or Not yet competent instead of *Use automatic*. A reason is required. The admin can do the same from the session page (shown as "Name (admin)" in the history). Picking *Use automatic* again goes back to the score card result.
+- The PDF shows the final result, how it was decided (Automatic, By hand or Override), the score card result and the override reason.
+
+## Scenario cards from CSV (course admin)
+1. Course admin → **Scenario cards** → **CSV template**. Open it in Excel and add one card per row.
+2. Columns: `id, colour, title, instruction, if_approached_say, recovery, phase, difficulty, objective, context`. Only colour, title and instruction are required. Leave id blank to number cards automatically (X01, X02…).
+3. Save as CSV, then **Upload CSV**. You get a preview with any bad rows listed. Choose *Add to existing* or *Replace all*, then **Save these cards**.
+4. Evaluator screens pick the cards up the next time they open a session. Cards that were already dealt stay in the records unchanged.
+
+## Card artwork
+- Source images live in `art/source/` (one PNG per card, named like `role-red.png`, `scenario-blue.png`, `trainer-lead.png`, `back-role.png`).
+- To change a design: replace the PNG (keep the name and the white text panel), then run `python3 scripts/cards.py` and commit. The script trims the white surround, measures the white panel, and writes `public/cards/*.webp` plus `src/card-art.js`.
+- Fronts: the card picture and header are shown as-is; the white panel stretches if the text is long, so nothing is cut off.
+- Backs: the frame is drawn in the colours taken from your design and your emblem is placed in the middle, so a back always matches its front's height when it flips.
+- Custom scenario cards (from an evaluator or CSV) use the scenario front of their colour.
+- About 340 KB in total. A phone only downloads the images for the cards it actually shows.
 
 ## The cards
 | Type | Cards | Notes |
@@ -197,6 +234,12 @@ There are 3 card backs (role, scenario, trainer). Backs are the same for every c
 - **Inserting code into a page with `String.replace`:** always pass a function (`.replace(x, () => code)`). A plain string treats `$&`, `$1` etc. inside the code as patterns and silently corrupts it. (This broke the QR code in the demo build.)
 - **Helpers used at start-up must be declared above their first use.** A `const` read before its line throws, and if that throw is inside a `try` it fails silently. (This once made the app ignore a saved sign-in.)
 - **Anything shared by every phone (like the clock) goes in one shared document**, not copied into each phone's private document. Otherwise every Start or Pause costs one write per participant.
+- **A pop-up's background only closes on a real tap:** the press and the release must both be on the background, with no text selected. A click event fires on the common parent when you press inside and release outside, which used to close the pop-up while someone was selecting text.
+- **For packages with both CommonJS and ES builds, import the ES build when you need the default export** (`jspdf-autotable/es`). Bundling the CommonJS one gave `default is not a function` only when a PDF was made.
+- **Put a version stamp on image links that can change** (`cards/x.webp?v=3.7.1`). Otherwise phones keep showing the old picture from their cache after you upload new art.
+- **Never reuse a short class name for two things.** The page's "‹ Back" link style (`.back`) also matched card backs (`.face.back`), underlining the name on every card back. Scope shared names, e.g. `.face.back`, `button.back`.
+- **Card art shadows go on their own layer, not a `filter` on the card face.** A filter on a 3D-flipped face can flatten the flip on iOS, and a shadow drawn behind with `z-index:-1` still paints over the face's own background, so both the art and its shadow are pseudo-elements behind the text.
+- **Load heavy, rarely used code on demand** (the PDF maker is its own `pdf.js`, fetched the first time someone downloads a report), so participants' phones never download it.
 - **Batch background work** (joins, card flips) into one transaction, and let one device do it. Many devices doing it separately leads to slow joins and wasted writes.
 
 ## Privacy

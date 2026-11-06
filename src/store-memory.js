@@ -26,6 +26,11 @@ export function allowed(op, path, uid, before, after, get, getAfter) {
     const c = get('config/admin');
     return !!(c && c.code) && keysOnly(after, ['key', 'at']) && after.key === c.code;
   }
+  if (seg[0] === 'settings') {
+    if (seg.length !== 2) return false;
+    if (op === 'read' || op === 'list') return true;
+    return isAdmin() && ['grading', 'scenarios'].includes(seg[1]);
+  }
   if (seg[0] !== 'sessions') return false;
   const code = seg[1];
   const isStaff = () => !!get(`sessions/${code}/staff/${uid}`);
@@ -64,7 +69,7 @@ export function allowed(op, path, uid, before, after, get, getAfter) {
         && (ownerAfter() || (after.pin != null && after.pin === get(`sessions/${code}/secret/pin`)?.pin));
       return id === uid && changedKeys(before, after).every(k => ['seenAt', 'name'].includes(k));
     case 'engine': case 'rounds':
-      return isStaff();
+      return isStaff() || isAdmin(); // admin may write here to override outcomes
     case 'views':
       if (op === 'read') return (id === uid && participantsOpen()) || isStaff();
       return isStaff();
@@ -190,12 +195,15 @@ export function serveHub(hub, win = window) {
   const subs = new Map();
   win.addEventListener('message', e => {
     const m = e.data; if (!m || m.t !== 'hub') return;
-    const reply = (body) => e.source.postMessage({ t: 'hub-res', id: m.id, ...body }, '*');
+    const src = e.source;
+    const post = msg => { try { src?.postMessage(msg, '*'); return !!src; } catch { return false; } };
+    const reply = (body) => post({ t: 'hub-res', id: m.id, ...body });
     try {
       if (m.op === 'read') reply({ ok: hub.read(m.uid, m.path) });
       else if (m.op === 'list') reply({ ok: hub.list(m.uid, m.path) });
       else if (m.op === 'commit') reply({ ok: hub.commit(m.uid, m.writes, m.reads) });
-      else if (m.op === 'sub') subs.set(m.sid, hub.subscribe(m.uid, m.kind, m.path, data => e.source.postMessage({ t: 'hub-snap', sid: m.sid, data }, '*'), err => e.source.postMessage({ t: 'hub-snap', sid: m.sid, error: err.message }, '*')));
+      // A demo screen that reloads leaves its old listeners behind: drop them once its window is gone.
+      else if (m.op === 'sub') { const drop = () => { subs.get(m.sid)?.(); subs.delete(m.sid); }; subs.set(m.sid, hub.subscribe(m.uid, m.kind, m.path, data => { if (!post({ t: 'hub-snap', sid: m.sid, data })) drop(); }, err => { if (!post({ t: 'hub-snap', sid: m.sid, error: err.message })) drop(); })); }
       else if (m.op === 'unsub') { subs.get(m.sid)?.(); subs.delete(m.sid); }
     } catch (err) { reply({ error: err.message, code: err.code }); }
   });

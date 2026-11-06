@@ -88,7 +88,7 @@ async function seedPastSession() {
   await st.command({ action: 'observe', text: 'Clear demo of the Magic Design prompt, checked understanding with two questions.', competency: 'Lesson facilitation', polarity: '+' });
   await st.command({ action: 'observe', text: 'Stayed at the front for most of solo work; missed two learners falling behind.', competency: 'Classroom awareness', polarity: '-' });
   await st.command({ action: 'end' });
-  await st.command({ action: 'assess', decision: 'competent', scores: { 'Lesson facilitation': '3', 'Classroom awareness': '2', 'Learner engagement': '3', 'Classroom management': '3', 'Differentiated support': '2', 'Lead–Support coordination': '3' }, leadNotes: 'Confident delivery and a well-paced demonstration. Next time, circulate during solo work to spot learners who fall behind.', supportNotes: 'Good timing when stepping in with the disruptive learner.' });
+  await st.command({ action: 'assess', decisionMode: 'auto', decision: 'competent', scores: { 'Lesson facilitation': '3', 'Classroom awareness': '2', 'Learner engagement': '3', 'Classroom management': '3', 'Differentiated support': '2', 'Lead–Support coordination': '3' }, leadNotes: 'Confident delivery and a well-paced demonstration. Next time, circulate during solo work to spot learners who fall behind.', supportNotes: 'Good timing when stepping in with the disruptive learner.' });
   await st.command({ action: 'closeParticipants' });
   st.stop();
   // Make it yesterday

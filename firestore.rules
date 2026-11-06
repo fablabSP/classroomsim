@@ -20,7 +20,7 @@ service cloud.firestore {
            == get(/databases/$(db)/documents/config/access).data.startCode;
     }
 
-    // Course admin (super admin): read-only access to every session. Turned on by creating
+    // Course admin (super admin): reads every session, edits grading rules and course cards, overrides outcomes. Turned on by creating
     // config/admin { code: "a long passcode" } in the console. Changing that code signs every admin out.
     function isAdmin() {
       return signedIn()
@@ -39,6 +39,13 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['key', 'at'])
         && exists(/databases/$(db)/documents/config/admin)
         && request.resource.data.key == get(/databases/$(db)/documents/config/admin).data.code;
+    }
+
+    // Course settings the admin edits in the app: grading rules and extra scenario cards.
+    // Evaluators' screens read them; only the course admin can change them.
+    match /settings/{doc} {
+      allow read: if signedIn();
+      allow write: if isAdmin() && doc in ['grading', 'scenarios'];
     }
 
     match /sessions/{code} {
@@ -78,8 +85,9 @@ service cloud.firestore {
       }
 
       // Full session state and finished rounds: staff (and read-only for the course admin)
-      match /engine/{doc} { allow read: if isStaff(code) || isAdmin(); allow write: if isStaff(code); }
-      match /rounds/{idx} { allow read: if isStaff(code) || isAdmin(); allow write: if isStaff(code); }
+      // The course admin may also write here, to override a round's outcome
+      match /engine/{doc} { allow read, write: if isStaff(code) || isAdmin(); }
+      match /rounds/{idx} { allow read, write: if isStaff(code) || isAdmin(); }
 
       // One participant's private cards
       match /views/{uid} {

@@ -4,7 +4,7 @@ import SCENARIOS from './scenarios.js';
 import { QUICK_TAGS, RUBRIC, SUPPORT_AREA } from './quicktags.js';
 
 export { SCENARIOS, QUICK_TAGS, RUBRIC };
-export const VERSION = '3.5.0';
+export const VERSION = '3.7.1';
 export const COLORS = ['red', 'green', 'yellow', 'blue', 'black'];
 export const PHASES = ['explanation', 'discussion', 'independent', 'group', 'conclusion'];
 export const DURATIONS = [5, 10, 15, 20, 30];
@@ -36,7 +36,89 @@ export function formatEvaluatorCode(raw) { const c = String(raw || '').toUpperCa
 const newPin = newEvaluatorCode;
 const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 function shuffle(xs) { for (let i = xs.length - 1; i > 0; i--) { const j = randomInt(i + 1); [xs[i], xs[j]] = [xs[j], xs[i]]; } return xs; }
-export function catalog(s) { return [...(s.customScenarios || []).slice().reverse(), ...SCENARIOS]; }
+export function catalog(s) { return [...(s.customScenarios || []).slice().reverse(), ...(s.courseScenarios || []), ...SCENARIOS]; }
+
+// ---------- automatic grading ----------
+// The course admin sets these rules (settings/grading). A round is Competent when enough rubric
+// areas reach the standard, no area is too low, and every must-pass area reaches the standard.
+// Evaluators and the admin can always override the result by hand.
+export const DEFAULT_GRADING = { minLevel: 3, minAreas: 4, noneBelow: 2, required: [] };
+export function normalizeGrading(g) {
+  g = g || {};
+  const minLevel = [2, 3, 4].includes(Number(g.minLevel)) ? Number(g.minLevel) : DEFAULT_GRADING.minLevel;
+  const minAreas = Math.min(RUBRIC.length, Math.max(1, Math.round(Number(g.minAreas) || DEFAULT_GRADING.minAreas)));
+  const noneBelow = [0, 2, 3].includes(Number(g.noneBelow)) ? Number(g.noneBelow) : DEFAULT_GRADING.noneBelow;
+  const required = (Array.isArray(g.required) ? g.required : []).filter(k => RUBRIC.includes(k));
+  return { minLevel, minAreas, noneBelow, required };
+}
+export function gradingRuleText(g) {
+  g = normalizeGrading(g);
+  return `Competent when at least ${g.minAreas} of ${RUBRIC.length} areas score ${g.minLevel} or higher`
+    + (g.noneBelow ? `, no area scores below ${g.noneBelow}` : '')
+    + (g.required.length ? `, and ${g.required.join(', ')} ${g.required.length > 1 ? 'each score' : 'scores'} ${g.minLevel} or higher` : '') + '.';
+}
+export function autoGrade(scores, g) {
+  g = normalizeGrading(g);
+  const vals = RUBRIC.map(k => [k, Number(scores?.[k]) || 0]);
+  const scored = vals.filter(([, v]) => v >= 1);
+  const met = vals.filter(([, v]) => v >= g.minLevel).length;
+  if (!scored.length) return { result: 'pending', met: 0, needed: g.minAreas, summary: 'No scores yet', reasons: [] };
+  const reasons = [];
+  if (met < g.minAreas) reasons.push(`${met} of ${RUBRIC.length} areas at ${g.minLevel}+ (needs ${g.minAreas})`);
+  const low = vals.filter(([, v]) => v >= 1 && g.noneBelow && v < g.noneBelow).map(([k]) => k);
+  if (low.length) reasons.push(`below ${g.noneBelow} in ${low.join(', ')}`);
+  const missed = g.required.filter(k => (Number(scores?.[k]) || 0) < g.minLevel);
+  if (missed.length) reasons.push(`must-pass area not met: ${missed.join(', ')}`);
+  const result = reasons.length ? 'not-yet-competent' : 'competent';
+  return { result, met, needed: g.minAreas, summary: result === 'competent' ? `${met} of ${RUBRIC.length} areas at ${g.minLevel}+` : reasons.join('; '), reasons };
+}
+
+// ---------- scenario cards from a CSV file (course admin) ----------
+export const SCENARIO_CSV_HEADER = ['id', 'colour', 'title', 'instruction', 'if_approached_say', 'recovery', 'phase', 'difficulty', 'objective', 'context'];
+export function parseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  text = String(text || '').replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+const COLOUR_WORDS = { red: 'red', green: 'green', yellow: 'yellow', blue: 'blue', black: 'black', r: 'red', g: 'green', y: 'yellow', b: 'blue', k: 'black' };
+export function parseScenarioCsv(text, takenIds = []) {
+  const rows = parseCsv(text);
+  if (!rows.length) return { cards: [], errors: ['The file is empty.'] };
+  const head = rows[0].map(h => h.trim().toLowerCase().replace(/[^a-z]+/g, '_').replace(/^_|_$/g, ''));
+  const col = (...names) => head.findIndex(h => names.includes(h));
+  const ix = { id: col('id', 'card_id'), colour: col('colour', 'color', 'profile'), title: col('title', 'name'), instruction: col('instruction', 'do_this', 'do_this_now'), response: col('if_approached_say', 'response', 'say'), recovery: col('recovery', 'when_helped', 'when_they_help_you_well'), phase: col('phase', 'lesson_phase'), difficulty: col('difficulty'), objective: col('objective', 'what_it_tests'), context: col('context') };
+  if (ix.colour < 0 || ix.title < 0 || ix.instruction < 0) return { cards: [], errors: ['The first row must be a header with at least: colour, title, instruction. Download the template to see the format.'] };
+  const cards = [], errors = [], ids = new Set([...SCENARIOS.map(x => x.id), ...takenIds]);
+  rows.slice(1).forEach((r, n) => {
+    const v = k => (ix[k] >= 0 ? String(r[ix[k]] ?? '').trim() : '');
+    const line = n + 2, colour = COLOUR_WORDS[v('colour').toLowerCase()];
+    const title = v('title').slice(0, 100), instruction = v('instruction').slice(0, 800);
+    if (!colour) return errors.push(`Row ${line}: colour must be red, yellow, blue, black or green.`);
+    if (title.length < 3) return errors.push(`Row ${line}: title is missing.`);
+    if (instruction.length < 8) return errors.push(`Row ${line}: instruction is missing or too short.`);
+    let id = v('id').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
+    if (!id || ids.has(id)) { let k = 1; do { id = 'X' + String(cards.length + k++).padStart(2, '0'); } while (ids.has(id)); }
+    ids.add(id);
+    const phase = PHASES.includes(v('phase').toLowerCase()) ? v('phase').toLowerCase() : 'independent';
+    const difficulty = ['mild', 'moderate', 'challenging'].includes(v('difficulty').toLowerCase()) ? v('difficulty').toLowerCase() : 'moderate';
+    cards.push({ id, color: colour, title, phase, difficulty, instruction, response: v('response').slice(0, 650) || 'Respond naturally and respectfully if a trainer comes to you.', recovery: v('recovery').slice(0, 650) || 'Go back to normal participation once the trainer has helped.', objective: v('objective').slice(0, 150) || 'Classroom facilitation', context: v('context').slice(0, 100) || 'Course card', course: true });
+  });
+  if (cards.length > 200) { errors.push('Only the first 200 cards were kept.'); cards.length = 200; }
+  return { cards, errors };
+}
+const csvQ = v => '"' + String(v ?? '').replaceAll('"', '""') + '"';
+export function scenarioCsv(cards) {
+  return [SCENARIO_CSV_HEADER, ...cards.map(c => [c.id, c.color, c.title, c.instruction, c.response, c.recovery, c.phase, c.difficulty, c.objective, c.context])].map(r => r.map(csvQ).join(',')).join('\n');
+}
 export function elapsed(r, now) { return Math.max(0, (r.accumulatedMs || 0) + (r.status === 'running' ? now - r.startedAt : 0)); }
 export function remain(r, now) { return Math.max(0, r.durationMinutes * 60000 - elapsed(r, now)); }
 const nameOf = (s, pid) => s.participants.find(p => p.id === pid)?.name || 'student';
@@ -179,7 +261,7 @@ export function makePlan(s) {
   const jitter = Math.min(12, Math.floor(total * 0.02));
   r.planned = holders.slice(0, n).map((pid, i) => {
     const c = r.roles[pid];
-    const list = SCENARIOS.filter(x => x.color === c && x.difficulty !== 'challenging');
+    const list = [...(s.courseScenarios || []), ...SCENARIOS].filter(x => x.color === c && x.difficulty !== 'challenging');
     const at = Math.round(total * (0.15 + 0.65 * (i + 0.5) / n));
     return { id: newId(), scenarioId: list[randomInt(list.length)].id, participantId: pid, offsetSeconds: Math.max(15, at + randomInt(jitter * 2 + 1) - jitter), state: 'pending' };
   }).sort((a, b) => a.offsetSeconds - b.offsetSeconds);
@@ -281,7 +363,7 @@ export function redact(s, who, now, presence = {}) {
 }
 
 // ---------- commands ----------
-const EVAL_ACTIONS = new Set(['observe', 'editObservation', 'deleteObservation', 'rateIncident', 'assess']);
+const EVAL_ACTIONS = new Set(['observe', 'editObservation', 'deleteObservation', 'rateIncident', 'assess', 'setOutcome']);
 const SEND_ACTIONS = new Set(['trigger', 'triggerActivity', 'resolve', 'cancel', 'nudge', 'extendParticipants', 'closeParticipants']); // instructor + evaluators
 export function isEvalAction(a) { return EVAL_ACTIONS.has(a); }
 
@@ -340,14 +422,31 @@ export function applyEval(s, r, who, b, now) {
   if (a === 'assess') {
     const scores = b.scores || {};
     for (const k of RUBRIC) if (!['not-observed', '1', '2', '3', '4'].includes(String(scores[k] ?? 'not-observed'))) fail('Invalid rubric rating.');
-    if (!['pending', 'competent', 'not-yet-competent'].includes(b.decision)) fail('Invalid outcome.');
+    const mode = b.decisionMode === 'auto' ? 'auto' : 'manual';
+    if (mode === 'manual' && !['pending', 'competent', 'not-yet-competent'].includes(b.decision)) fail('Invalid outcome.');
     r.scores = Object.fromEntries(RUBRIC.map(k => [k, String(scores[k] ?? 'not-observed')]));
-    r.leadNotes = str(b.leadNotes, 5000); r.supportNotes = str(b.supportNotes, 5000); r.decision = b.decision;
+    r.leadNotes = str(b.leadNotes, 5000); r.supportNotes = str(b.supportNotes, 5000);
+    const g = normalizeGrading(b.grading), auto = autoGrade(r.scores, g);
+    r.autoResult = { result: auto.result, summary: auto.summary, rule: gradingRuleText(g), grading: g };
+    r.decisionMode = mode;
+    r.decision = mode === 'auto' ? auto.result : b.decision;
+    r.overrideReason = mode === 'manual' && r.decision !== auto.result ? str(b.reason, 500) : '';
     r.savedBy = by; r.savedAt = now;
     // Change history: every save is kept, so any later change to a result is visible.
-    (r.assessLog ||= []).push({ by, at: now, decision: r.decision, scores: { ...r.scores } });
+    (r.assessLog ||= []).push({ by, at: now, decision: r.decision, mode, reason: r.overrideReason || undefined, scores: { ...r.scores } });
     if (r.assessLog.length > 50) r.assessLog = r.assessLog.slice(-50);
     if (r === s.round) log(s, r, 'assessment-saved', 'Assessment saved by ' + by, now);
+    return {};
+  }
+  if (a === 'setOutcome') { // change only the outcome: back to the automatic result, or a manual override with a reason
+    const want = b.decision;
+    if (!['auto', 'pending', 'competent', 'not-yet-competent'].includes(want)) fail('Invalid outcome.');
+    const auto = r.autoResult?.result || autoGrade(r.scores, b.grading).result;
+    if (want === 'auto') { r.decisionMode = 'auto'; r.decision = auto; r.overrideReason = ''; }
+    else { r.decisionMode = 'manual'; r.decision = want; r.overrideReason = want === auto ? '' : str(b.reason, 500); }
+    (r.assessLog ||= []).push({ by, at: now, decision: r.decision, mode: r.decisionMode, reason: r.overrideReason || undefined, scores: { ...r.scores }, outcomeOnly: true });
+    if (r.assessLog.length > 50) r.assessLog = r.assessLog.slice(-50);
+    if (r === s.round) log(s, r, 'outcome-changed', `Outcome set to ${r.decision} by ${by}`, now);
     return {};
   }
   fail('Unknown command.');
@@ -475,7 +574,7 @@ export function exportData(s, archived) {
     exportedWith: 'ClassroomSim ' + VERSION,
     session: { code: s.code, cohort: s.cohort, lessonTopic: s.lessonTopic, mode: s.mode, instructorName: s.instructorName, createdAt: s.createdAt },
     participants: s.participants.map(strip), evaluators: s.evaluators.map(strip),
-    customScenarios: s.customScenarios,
+    customScenarios: s.customScenarios, courseScenarios: s.courseScenarios || [],
     rounds: [...archived, ...(s.round.status !== 'lobby' || s.round.observations.length ? [s.round] : [])]
   };
 }
@@ -487,6 +586,7 @@ export function exportCsv(s, archived) {
   for (const r of exportData(s, archived).rounds) {
     for (const e of r.events) rows.push([r.index, 'event:' + e.kind, mmss(e.elapsed), new Date(e.time).toISOString(), '', '', e.detail, '']);
     for (const o of r.observations) { const t = o.tagId ? QUICK_TAGS.find(x => x.id === o.tagId)?.short : ''; rows.push([r.index, o.flagged ? 'observation (flagged)' : 'observation', mmss(o.elapsed), new Date(o.time).toISOString(), o.competency, o.polarity, [t, o.text].filter(Boolean).join(' — '), o.by]); }
+    rows.push([r.index, 'outcome', '', r.savedAt ? new Date(r.savedAt).toISOString() : '', r.decisionMode === 'auto' ? 'automatic' : 'manual', '', [r.decision, r.autoResult ? 'auto: ' + r.autoResult.result + ' (' + r.autoResult.summary + ')' : '', r.overrideReason ? 'reason: ' + r.overrideReason : ''].filter(Boolean).join('; '), r.savedBy || '']);
     for (const i of r.incidents) if (i.rating) rows.push([r.index, 'incident-rating', mmss(i.triggerElapsedMs), new Date(i.sentAt).toISOString(), i.title, '', `noticed=${i.rating.noticed || ''}; response=${i.rating.response || ''}; handled_by=${i.rating.handledBy || ''}; ${i.rating.note || ''}`, i.rating.by]);
   }
   return rows.map(r => r.map(csvCell).join(',')).join('\n');

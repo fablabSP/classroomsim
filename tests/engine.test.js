@@ -212,9 +212,16 @@ test('course admin: needs the admin passcode, sees every session read-only, sign
   const raw = await E.adminRaw(admin, code);
   assert.ok(raw[P.pin]?.pin, 'sees the evaluator code');
   assert.ok(Object.keys(raw).some(k => k.startsWith(P.people + '/')), 'sees participant docs');
-  // Read-only: cannot change anything
-  await assert.rejects(admin.setDoc(P.state, { data: '{}' }), /permission/i);
+  // Cannot change the session itself, evaluators, participants or their cards
   await assert.rejects(admin.updateDoc(P.session, { participantsUntil: 1 }), /permission/i);
+  await assert.rejects(admin.setDoc(`${P.views}/u-p0`, { x: 1 }), /permission/i);
+  await assert.rejects(admin.updateDoc(P.pin, { pin: 'X' }), /permission/i);
+  // Can save grading rules and course cards; evaluators and participants cannot
+  await E.adminSaveGrading(admin, { minLevel: 3, minAreas: 5, noneBelow: 2, required: ['Classroom management'] }, 'Louis');
+  await assert.rejects(E.adminSaveGrading(staff.store, { minAreas: 1 }, 'Evaluator'), /permission/i);
+  await assert.rejects(E.adminSaveCards(people[0].st, [], 'Kid'), /permission/i);
+  const st = await E.loadSettings(people[0].st);
+  assert.equal(st.grading.minAreas, 5, 'everyone signed in can read the rules');
   await assert.rejects(admin.setDoc(`${P.staff}/u-admin`, { name: 'Admin' }), /permission/i);
   await assert.rejects(admin.deleteDoc(`${P.people}/u-p0`), /permission/i);
   await assert.rejects(admin.getDoc(`${P.session}/proof/u-owner`), /permission/i, 'start passcode proof stays hidden');
@@ -226,4 +233,32 @@ test('course admin: needs the admin passcode, sees every session read-only, sign
   assert.equal(await E.adminActive(admin), false);
   await assert.rejects(admin.getDoc(P.state), /permission/i);
   staff.stop();
+});
+
+test('auto grading, manual override by evaluator and by admin, course cards from CSV reach the session', async () => {
+  const { hub, code, staff, people } = await setup(6);
+  hub.docs.set('config/admin', { data: { code: 'Strong-Admin-Passcode-2026' }, version: 1 });
+  const admin = new MemoryStore(hub, 'u-admin');
+  await E.adminSignIn(admin, 'Strong-Admin-Passcode-2026');
+  const g = { minLevel: 3, minAreas: 4, noneBelow: 2, required: [] };
+  const scores = { 'Lesson facilitation': '3', 'Classroom awareness': '2', 'Learner engagement': '3', 'Classroom management': '3', 'Differentiated support': '1', 'Lead–Support coordination': '3' };
+  await staff.command({ action: 'assess', scores, decisionMode: 'auto', grading: g, leadNotes: '', supportNotes: '' });
+  await until(() => staff.state.round.autoResult);
+  assert.equal(staff.state.round.decision, 'not-yet-competent', 'a 1 is below the floor of 2');
+  assert.match(staff.state.round.autoResult.summary, /below 2/);
+  await staff.command({ action: 'setOutcome', decision: 'competent', reason: 'Score of 1 was a mis-tap' });
+  await until(() => staff.state.round.decision === 'competent');
+  assert.equal(staff.state.round.decisionMode, 'manual');
+  await E.adminSetOutcome(admin, code, staff.state.round.index, 'auto', '', 'Course admin', g);
+  await until(() => staff.state.round.decision === 'not-yet-competent');
+  assert.equal(staff.state.round.decisionMode, 'auto');
+  assert.ok(staff.state.round.assessLog.some(x => x.by === 'Course admin'), 'admin change is in the history');
+  // Course cards: admin uploads, a new evaluator screen picks them up and can deal them
+  const { cards, errors } = L.parseScenarioCsv('id,colour,title,instruction\nP01,red,Phone under desk,Check your phone quietly under the desk.\n,teal,Bad,Nope nope nope\n');
+  assert.equal(cards.length, 1); assert.equal(errors.length, 1);
+  await E.adminSaveCards(admin, cards, 'Louis');
+  const again = new E.StaffSession(staff.store, code).start();
+  await until(() => again.state?.courseScenarios?.length === 1);
+  assert.ok(again.view().scenarios.some(x => x.id === 'P01'), 'course card is in the deck');
+  staff.stop(); again.stop();
 });

@@ -106,6 +106,7 @@ export class StaffSession {
     this.unsubs.push(store.onDoc(p.state, d => {
       if (!d) return this.onError(new L.UserError('This session no longer exists.', 404));
       this.state = JSON.parse(d.data); this.state.code = this.code; this.emit(); this.reconcileSoon();
+      if (!this.synced) { this.synced = true; this.syncCourseCards(); }
     }, e => this.onError(e)));
     this.unsubs.push(store.onCollection(p.people, list => { this.people = list; this.emit(); this.reconcileSoon(); }, e => this.onError(e)));
     this.unsubs.push(store.onCollection(p.staff, list => { this.staffDocs = list; this.emit(); this.reconcileSoon(); }, e => this.onError(e)));
@@ -114,6 +115,19 @@ export class StaffSession {
     beat();
     this.timers.push(setInterval(beat, 40000));
     return this;
+  }
+  // Scenario cards the course admin uploaded (settings/scenarios) are copied into the session,
+  // so they can be dealt and stay readable in the records even if the admin changes them later.
+  async syncCourseCards() {
+    let cards;
+    try { cards = (await this.store.getDoc('settings/scenarios'))?.cards; } catch { return; }
+    if (!Array.isArray(cards) || JSON.stringify(cards) === JSON.stringify(this.state?.courseScenarios || [])) return;
+    await this.mutate(s => {
+      const used = new Set([...s.round.incidents.map(i => i.scenarioId), ...s.round.planned.map(p => p.scenarioId)]);
+      const keep = (s.courseScenarios || []).filter(c => used.has(c.id) && !cards.some(x => x.id === c.id));
+      s.courseScenarios = [...cards, ...keep];
+      return {};
+    }).catch(() => {});
   }
   stop() { this.unsubs.forEach(u => u()); this.timers.forEach(clearInterval); this.unsubs = []; this.timers = []; }
   emit() { if (this.state) this.onChange(this.view()); }
@@ -186,7 +200,7 @@ export class StaffSession {
       const r = JSON.parse(rd.data), s = JSON.parse(sd.data);
       const out = L.applyEval(s, r, this.who(), body, Date.now());
       tx.set(rp, { index: ri, data: JSON.stringify(r) });
-      if (body.action === 'assess') {
+      if (body.action === 'assess' || body.action === 'setOutcome') {
         const a = s.archivedRounds.find(x => x.index === ri);
         if (a) { a.decision = r.decision; a.observations = r.observations.length; tx.set(this.p.state, { data: JSON.stringify(s), v: (sd.v || 0) + 1, updatedAt: Date.now() }); }
       }
@@ -291,6 +305,19 @@ export class ParticipantSession {
     this.timers.push(setInterval(beat, 120000));
     return this;
   }
+  // Scenario cards the course admin uploaded (settings/scenarios) are copied into the session,
+  // so they can be dealt and stay readable in the records even if the admin changes them later.
+  async syncCourseCards() {
+    let cards;
+    try { cards = (await this.store.getDoc('settings/scenarios'))?.cards; } catch { return; }
+    if (!Array.isArray(cards) || JSON.stringify(cards) === JSON.stringify(this.state?.courseScenarios || [])) return;
+    await this.mutate(s => {
+      const used = new Set([...s.round.incidents.map(i => i.scenarioId), ...s.round.planned.map(p => p.scenarioId)]);
+      const keep = (s.courseScenarios || []).filter(c => used.has(c.id) && !cards.some(x => x.id === c.id));
+      s.courseScenarios = [...cards, ...keep];
+      return {};
+    }).catch(() => {});
+  }
   stop() { this.unsubs.forEach(u => u()); this.timers.forEach(clearInterval); }
   acknowledge(incId) { return this.store.updateDoc(this.me, { [`acks.${incId}`]: Date.now() }); }
   approached(incId) { return this.store.updateDoc(this.me, { [`approached.${incId}`]: Date.now() }); }
@@ -345,4 +372,34 @@ export async function adminRaw(store, code) {
     ...Object.fromEntries(people.map(d => [`${p.people}/${d.id}`, d.data])),
     ...Object.fromEntries(views.map(d => [`${p.views}/${d.id}`, parse(d.data)]))
   };
+}
+
+// ---------- course settings (grading rules, extra scenario cards) ----------
+export async function loadSettings(store) {
+  const [g, c] = await Promise.all([store.getDoc('settings/grading').catch(() => null), store.getDoc('settings/scenarios').catch(() => null)]);
+  return { grading: L.normalizeGrading(g), gradingSet: !!g, gradingBy: g?.updatedBy || '', gradingAt: g?.updatedAt || null, cards: c?.cards || [] };
+}
+export async function adminSaveGrading(store, grading, by) {
+  await store.setDoc('settings/grading', { ...L.normalizeGrading(grading), updatedBy: String(by || 'Admin').slice(0, 64), updatedAt: Date.now() });
+}
+export async function adminSaveCards(store, cards, by) {
+  await store.setDoc('settings/scenarios', { cards, updatedBy: String(by || 'Admin').slice(0, 64), updatedAt: Date.now() });
+}
+// Course admin changes a round's outcome (manual override or back to automatic).
+export async function adminSetOutcome(store, code, roundIndex, decision, reason, by, grading) {
+  const p = paths(code), who = { kind: 'instructor', name: by || 'Course admin' };
+  const body = { action: 'setOutcome', decision, reason, grading };
+  return store.runTransaction(async tx => {
+    const sd = await tx.get(p.state); if (!sd) throw new L.UserError('Session not found.', 404);
+    const s = JSON.parse(sd.data), now = Date.now();
+    if (s.round.index === roundIndex) { L.applyEval(s, s.round, who, body, now); }
+    else {
+      const rp = `${p.rounds}/${roundIndex}`, rd = await tx.get(rp);
+      if (!rd) throw new L.UserError('That round was not found.', 404);
+      const r = JSON.parse(rd.data); L.applyEval(s, r, who, body, now);
+      tx.set(rp, { index: roundIndex, data: JSON.stringify(r) });
+      const a = s.archivedRounds.find(x => x.index === roundIndex); if (a) a.decision = r.decision;
+    }
+    tx.set(p.state, { data: JSON.stringify(s), v: (sd.v || 0) + 1, updatedAt: now });
+  });
 }

@@ -269,7 +269,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .pcard.static .face.front { transform: none; }
 .pcard.static .face.back { display: none; }
 /* back: SDKit-style pattern, a type label and an emblem */
-.face.back { position: relative; align-items: center; justify-content: center; gap: .8rem; color: #fff; background-color: var(--bk, var(--blue));
+.face.back { text-decoration: none; font-weight: inherit; position: relative; align-items: center; justify-content: center; gap: .8rem; color: #fff; background-color: var(--bk, var(--blue));
   background-image:
     radial-gradient(circle at 50% 50%, rgba(255,255,255,.18) 2px, transparent 2.5px),
     linear-gradient(45deg, rgba(255,255,255,.1) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.1) 75%),
@@ -295,6 +295,34 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .csec { border-top: 2px dashed var(--line); padding-top: .55rem; }
 .csec .eyebrow { margin-bottom: .15rem; }
 .cfoot { display: flex; justify-content: space-between; gap: .5rem; padding: .5rem 1rem; border-top: 2px solid var(--ink); background: var(--surface-2); font-size: .74rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-family: var(--display); }
+/* ---------- card artwork ---------- */
+/* Front: the artwork is a border-image. Top slice = header + picture + top of the white panel,
+   bottom slice = bottom of the panel + frame; the middle band (plain panel) stretches with the text. */
+.face.front.art { position: relative; isolation: isolate; overflow: visible; background: none; box-shadow: none; border-radius: 0;
+  border-style: solid; border-color: transparent; border-width: calc(var(--w) * var(--bt)) 0 calc(var(--w) * var(--bb)) 0;
+  min-height: calc(var(--w) * var(--hr)); padding: 0 calc(var(--w) * var(--pr)) 0 calc(var(--w) * var(--pl)); }
+/* ::after = the artwork, ::before = a hard shadow in the card's shape. Both sit behind the text.
+   (A filter on the face itself would flatten the 3D flip on iOS, so the shadow is its own layer.) */
+.face.front.art::before, .face.front.art::after { content: ""; position: absolute; pointer-events: none;
+  inset: calc(var(--w) * var(--bt) * -1) 0 calc(var(--w) * var(--bb) * -1) 0;
+  border-style: solid; border-color: transparent; border-width: calc(var(--w) * var(--bt)) 0 calc(var(--w) * var(--bb)) 0;
+  border-image-source: var(--art); border-image-slice: var(--st) 0 var(--sb) 0 fill; border-image-repeat: stretch; }
+.face.front.art::after { z-index: -1; }
+.face.front.art::before { z-index: -2; transform: translate(4px, 5px); filter: brightness(0); opacity: .8; }
+.face.front.art .cbody { padding: .1rem 0 .3rem; gap: .45rem; }
+.face.front.art .cbody .do { font-size: 1.02rem; line-height: 1.38; }
+.face.front.art .cbody p { font-size: .93rem; line-height: 1.42; }
+.face.front.art .ctitle { font-family: var(--display); font-weight: 900; font-size: 1.12rem; line-height: 1.2; margin: 0 0 .1rem; }
+.face.front.art .csec { padding-top: .45rem; }
+.face.front.art .cfoot { border: 0; background: none; padding: .35rem 0 0; font-size: .66rem; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Back: frame drawn in the colours sampled from the art, emblem in the middle */
+.face.back.art-back { background: radial-gradient(120% 80% at 50% 38%, color-mix(in srgb, var(--bk) 82%, #fff) 0%, var(--bk) 60%); background-color: var(--bk);
+  border: calc(var(--w) * .014) solid var(--rim); border-radius: calc(var(--w) * .065); gap: calc(var(--w) * .05); padding-bottom: calc(var(--w) * .1); }
+.face.back.art-back::before { inset: calc(var(--w) * .05); border: 3px solid rgba(255,255,255,.95); border-radius: calc(var(--w) * .045); }
+.art-back .emb { display: block; width: calc(var(--w) * .62); max-width: calc(var(--w) * .42 * var(--ea)); aspect-ratio: var(--ea); background: var(--emb) center / contain no-repeat; margin-top: calc(var(--w) * .12); }
+.art-back .who { position: relative; color: #fff; font-family: var(--display); font-weight: 800; font-size: .95rem; opacity: .92; }
+.art-back .tapflip { position: absolute; bottom: calc(var(--w) * .1); }
 /* dealing animation */
 .pcard.deal { animation: deal .6s cubic-bezier(.2, .9, .3, 1.15) both; }
 @keyframes deal { from { transform: translateY(-60vh) rotate(-14deg) scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -416,14 +444,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .sheet.wide { max-width: 1100px; }
 .deck-filters { display: flex; flex-wrap: wrap; gap: .5rem; }
 .deck-filters .seg { flex: 1 1 auto; }
-.deckgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 1.1rem; justify-items: center; align-items: start; margin-top: .8rem; }
-.deckgrid .pcard { --w: min(100%, 300px); }
+.deckgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 262px), 1fr)); gap: 1.3rem .8rem; justify-items: center; align-items: start; margin-top: .8rem; }
+.deckgrid .pcard { --w: min(76vw, 250px); } /* px-based: card art border widths are computed from --w */
 
 /* ---------- course admin ---------- */
 .admin-top .btn { min-height: 44px; }
 .admin-main { padding-bottom: 2.5rem; }
-.tabs3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; margin-bottom: 1rem; }
-.tabs3 button { min-height: 48px; border-radius: 10px; border: 2px solid var(--ink); background: #fff; font-weight: 800; font-family: var(--display); cursor: pointer; font-size: .92rem; padding: 0 .3rem; }
+.tabs3 { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+.tabs3 button { flex: 1 1 auto; white-space: nowrap; padding: 0 .8rem; }
+.tabs3 button { min-height: 48px; border-radius: 10px; border: 2px solid var(--ink); background: #fff; font-weight: 800; font-family: var(--display); cursor: pointer; font-size: .92rem; padding: 0 .8rem; }
 .tabs3 button.on { background: var(--ink); color: #fff; }
 .search { width: 100%; min-height: 48px; border: 2px solid var(--ink); border-radius: 12px; padding: 0 .9rem; font: inherit; margin-bottom: .8rem; background: #fff; }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
@@ -437,3 +466,19 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .cbar-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: .35rem; border: 1.5px solid var(--ink); background: var(--r-normal); vertical-align: -1px; }
 .cbar-dot.red { background: var(--r-red); } .cbar-dot.green { background: var(--r-green); } .cbar-dot.yellow { background: var(--r-yellow); } .cbar-dot.blue { background: var(--r-blue); } .cbar-dot.black { background: var(--r-black); }
 .good-t { color: var(--good); } .bad-t { color: var(--bad); }
+
+/* automatic score card */
+.scorecard { border: 2px solid var(--ink); border-radius: 12px; padding: .7rem .8rem; background: var(--surface-2); }
+.scorecard.competent { background: var(--good-soft); } .scorecard.not-yet-competent { background: var(--bad-soft); }
+.sc-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: .4rem; }
+.sc-areas { display: grid; gap: .2rem; }
+.sc-areas > div { display: flex; gap: .5rem; align-items: center; font-size: .9rem; padding: .15rem 0; border-bottom: 1px dashed var(--line); }
+.sc-areas .mk { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-weight: 800; font-size: .8rem; border: 1.5px solid var(--ink); background: #fff; flex: none; }
+.sc-areas .ok .mk { background: var(--good); color: #fff; border-color: var(--good); }
+.sc-areas .low .mk { background: var(--bad); color: #fff; border-color: var(--bad); }
+.sc-sum { margin-top: .45rem; font-size: .9rem; }
+.checkrow { display: flex; gap: .5rem; align-items: center; min-height: 40px; font-size: .95rem; }
+.checkrow input { width: 20px; height: 20px; accent-color: var(--ink); }
+.filebtn { cursor: pointer; }
+.importbox { margin-top: .8rem; border: 2px dashed var(--ink); border-radius: 12px; padding: .8rem; background: var(--sun-2); }
+.importbox .tbl { background: #fff; }

@@ -1,6 +1,7 @@
 /* ClassroomSim 3 front end. Two interfaces: evaluators (run and assess) and participants (a hand of cards). */
 import * as E from './engine.js';
 import * as L from './logic.js';
+import { CARD_ART } from './card-art.js';
 import { svg as qrSvgOf } from './qr.js';
 
 export function startApp({ makeStore, publicUrl }) {
@@ -84,7 +85,7 @@ function attach() {
     setOnline(false);
   };
   if (identity.kind === 'staff') {
-    sess = new E.StaffSession(store, identity.code, { onChange: v => { setOnline(true); const prev = S; S = v; if (!prev) rememberSession({ code: v.code, topic: v.lessonTopic, cohort: v.cohort }); if (!prev && qrOnOpen) { qrOnOpen = false; setTimeout(() => showQR(true), 50); } receivedAt = Date.now(); detectAlerts(prev, S); render(); }, onError }).start();
+    sess = new E.StaffSession(store, identity.code, { onChange: v => { setOnline(true); const prev = S; S = v; if (!prev) { rememberSession({ code: v.code, topic: v.lessonTopic, cohort: v.cohort }); loadCourse(); } if (!prev && qrOnOpen) { qrOnOpen = false; setTimeout(() => showQR(true), 50); } receivedAt = Date.now(); detectAlerts(prev, S); render(); }, onError }).start();
   } else {
     sess = new E.ParticipantSession(store, identity.code, { onView: onParticipantView, onError }).start();
   }
@@ -286,22 +287,45 @@ function tapBuzz() { if (prefs.vibrate && canVibrate()) { try { navigator.vibrat
 
 // ---------------- playing cards ----------------
 // opts: {id, kind: role|scenario|trainer, color, sym, k, n, body, foot:[l,r], back:{kind, who}, flipped, static, deal, action}
+// Card artwork (public/cards, made by scripts/cards.py). Fronts: the text goes in the white panel,
+// which stretches down when a card has more text. Backs: CSS frame in the art's colours + its emblem.
+const ART_R = 0.045;
+// The single-file demo embeds the images; the real site loads them from public/cards/.
+const DEMO_CARDS = (() => { try { return window.parent !== window ? window.parent.__DEMO?.cards : null; } catch { return null; } })();
+const cardUrl = n => DEMO_CARDS?.[n] || `cards/${n}.webp?v=${L.VERSION}`; // version stamp: phones fetch new art after an update // corner radius of the white panel, as a fraction of card width
+function artFor(o) {
+  const front = o.kind === 'trainer' ? 'trainer-' + o.color : `${o.kind}-${o.color}`;
+  const a = CARD_ART[front], b = CARD_ART['back-' + o.kind];
+  if (!a || !b) return null;
+  const r = a.h / a.w, cut = ART_R / r, t = a.top + cut, bt = a.bottom - cut;
+  const f = n => +n.toFixed(4);
+  return {
+    front: `--art:url(${cardUrl(front)});--st:${f(t * 100)}%;--sb:${f((1 - bt) * 100)}%;--bt:${f(t * r)};--bb:${f((1 - bt) * r)};--hr:${f(r)};--pl:${f(a.left + 0.04)};--pr:${f(1 - a.right + 0.04)}`,
+    back: `--bk:${b.bg};--rim:${b.rim};--emb:url(${cardUrl('back-' + o.kind)});--ea:${b.emblemAspect}`
+  };
+}
 function cardHTML(o) {
   const backCls = { role: 'back-role', scenario: 'back-scenario', trainer: 'back-trainer' }[o.kind];
-  return `<div class="pcard c-${esc(o.color)} ${o.flipped || o.static ? 'is-flipped' : ''} ${o.static ? 'static' : ''} ${o.deal ? 'deal' : ''}" ${o.static ? '' : `role="button" tabindex="0" data-a="${o.action || 'flip'}" data-id="${esc(o.id)}" aria-label="${esc(o.back.kind)}: tap to flip"`}>
-    ${o.static ? '' : HAPT}<div class="pcard-inner">
-      <div class="face back ${backCls}" aria-hidden="${o.flipped ? 'true' : 'false'}"><div class="back-emblem"><div class="mark">${esc(o.backMark || 'CS')}</div><div class="kind">${esc(o.back.kind)}</div><div class="who">${esc(o.back.who || 'ClassroomSim')}</div></div><span class="tapflip">Tap to flip</span></div>
-      <div class="face front" aria-hidden="${o.flipped || o.static ? 'false' : 'true'}">
+  const art = artFor(o);
+  const back = art
+    ? `<div class="face back art-back ${backCls}" style="${art.back}" aria-hidden="${o.flipped ? 'true' : 'false'}"><span class="emb" role="img" aria-label="${esc(o.back.kind)}"></span>${o.back.who ? `<span class="who">${esc(o.back.who)}</span>` : ''}<span class="tapflip">Tap to flip</span></div>`
+    : `<div class="face back ${backCls}" aria-hidden="${o.flipped ? 'true' : 'false'}"><div class="back-emblem"><div class="mark">${esc(o.backMark || 'CS')}</div><div class="kind">${esc(o.back.kind)}</div><div class="who">${esc(o.back.who || 'ClassroomSim')}</div></div><span class="tapflip">Tap to flip</span></div>`;
+  const front = art
+    ? `<div class="face front art" style="${art.front}" aria-hidden="${o.flipped || o.static ? 'false' : 'true'}"><span class="sr">${esc(o.k)}: ${esc(o.n)}</span>
+        <div class="cbody">${o.title ? `<h3 class="ctitle">${esc(o.title)}</h3>` : ''}${o.body}</div>
+        <div class="cfoot"><span>${esc(o.foot[0])}</span><span>${esc(o.foot[1])}</span></div></div>`
+    : `<div class="face front" aria-hidden="${o.flipped || o.static ? 'false' : 'true'}">
         <div class="band"><span class="sym">${esc(o.sym)}</span><div><div class="k">${esc(o.k)}</div><div class="n">${esc(o.n)}</div></div></div>
         <div class="cbody">${o.body}</div>
         <div class="cfoot"><span>${esc(o.foot[0])}</span><span>${esc(o.foot[1])}</span></div>
-      </div>
-    </div></div>`;
+      </div>`;
+  return `<div class="pcard c-${esc(o.color)} ${o.flipped || o.static ? 'is-flipped' : ''} ${o.static ? 'static' : ''} ${o.deal ? 'deal' : ''}" ${o.static ? '' : `role="button" tabindex="0" data-a="${o.action || 'flip'}" data-id="${esc(o.id)}" aria-label="${esc(o.back.kind)}: tap to flip"`}>
+    ${o.static ? '' : HAPT}<div class="pcard-inner">${back}${front}</div></div>`;
 }
 function scenarioCard(sc, { id, flipped, deal, staticCard, roundIndex, who, action } = {}) {
   const c = sc.color;
   return cardHTML({
-    id, kind: 'scenario', color: c, sym: ROLE[c]?.sym || '!', k: `Scenario card · ${c}`, n: sc.title, flipped, deal, static: staticCard, action,
+    id, kind: 'scenario', color: c, sym: ROLE[c]?.sym || '!', k: `Scenario card · ${c}`, n: sc.title, title: sc.title, flipped, deal, static: staticCard, action,
     back: { kind: 'Scenario card', who: who || 'For your eyes only' }, backMark: '⚡',
     body: `<div class="eyebrow">Do this now</div><p class="do">${esc(sc.instruction)}</p>
       <div class="csec"><div class="eyebrow">If a trainer comes to you, say</div><p>${esc(sc.response)}</p></div>
@@ -721,9 +745,29 @@ function draftKey(r) { return `cs_draft_${S.code}_${r.index}`; }
 function getDraft(r) {
   const d = load(draftKey(r), null);
   if (d && d.dirty) return d;
-  return { scores: { ...r.scores }, leadNotes: r.leadNotes || '', supportNotes: r.supportNotes || '', decision: r.decision || 'pending', dirty: false };
+  return { scores: { ...r.scores }, leadNotes: r.leadNotes || '', supportNotes: r.supportNotes || '', decision: r.decision || 'pending', decisionMode: r.decisionMode || (r.savedAt ? 'manual' : 'auto'), reason: r.overrideReason || '', dirty: false };
 }
 function setDraft(r, patch) { const d = { ...getDraft(r), ...patch, dirty: true }; save(draftKey(r), d); return d; }
+function scoreCardHTML(scores, g) {
+  g = L.normalizeGrading(g); const a = L.autoGrade(scores, g);
+  return `<div class="scorecard ${a.result}"><div class="sc-head"><span class="eyebrow">Automatic score card</span>${decisionChip(a.result)}</div>
+    <div class="sc-areas">${L.RUBRIC.map(k => { const v = Number(scores?.[k]) || 0, ok = v >= g.minLevel, req = g.required.includes(k), low = v >= 1 && g.noneBelow && v < g.noneBelow; return `<div class="${ok ? 'ok' : low ? 'low' : v ? 'mid' : 'none'}"><span class="mk">${ok ? '✓' : low ? '✕' : v ? '·' : '–'}</span><span class="grow">${esc(AREA_SHORT[k] || k)}${req ? ' <b title="Must pass">*</b>' : ''}</span><b>${v || 'Not seen'}</b></div>`; }).join('')}</div>
+    <div class="sc-sum"><b>${a.met} of ${L.RUBRIC.length}</b> areas at ${g.minLevel}+ (needs ${g.minAreas}).${a.reasons.length ? ' ' + esc(a.reasons.filter(x => !/areas at/.test(x)).join('; ')) : ''}</div>
+    <p class="xs muted" style="margin:.3rem 0 0">${esc(L.gradingRuleText(g))}${g.required.length ? ' * = must pass.' : ''} Set by the course admin.</p></div>`;
+}
+function outcomeCard(r, d, idx) {
+  const auto = L.autoGrade(d.scores, course.grading).result;
+  const cur = d.decisionMode === 'auto' ? 'auto' : d.decision;
+  const overriding = d.decisionMode !== 'auto' && d.decision !== auto;
+  return `<section class="card"><h3>Outcome</h3>${scoreCardHTML(d.scores, course.grading)}
+    <div class="field" style="margin-top:.8rem"><span class="lbl">Final result</span>${seg('decision', [['auto', `Use automatic (${DECISION[auto]})`, auto === 'competent' ? 'good' : auto === 'not-yet-competent' ? 'bad' : ''], ['competent', 'Competent', 'good'], ['not-yet-competent', 'Not yet competent', 'bad'], ['pending', 'Not decided', '']], cur, `data-round="${idx}"`)}</div>
+    ${overriding ? `<div class="field"><label class="lbl" for="ov-reason">Reason for overriding the score card</label><textarea id="ov-reason" data-draft="reason" data-round="${idx}" maxlength="500" style="min-height:70px" placeholder="e.g. Handled a serious incident very well, which the scores don't show">${esc(d.reason)}</textarea></div>` : ''}
+    ${r.savedAt ? `<p class="small muted" style="margin:.3rem 0 0">Saved result: ${decisionChip(r.decision)} ${r.decisionMode === 'auto' ? '(automatic)' : '(set by hand)'}${r.overrideReason ? ' · ' + esc(r.overrideReason) : ''}</p>` : ''}
+    ${historyHTML(r)}</section>`;
+}
+function historyHTML(r) {
+  return (r.assessLog || []).length ? `<details style="margin-top:.6rem"><summary class="small">Change history (${r.assessLog.length} save${r.assessLog.length > 1 ? 's' : ''})</summary><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${new Date(x.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · <b>${esc(x.by)}</b> · ${esc(DECISION[x.decision] || x.decision)}${x.mode === 'auto' ? ' (automatic)' : x.mode === 'manual' ? ' (by hand)' : ''}${x.reason ? ': ' + esc(x.reason) : ''}</div>`).join('')}</div></details>` : '';
+}
 function viewReview() {
   const r = roundForReview();
   if (!r) return '<div class="empty">Loading round…</div>';
@@ -738,7 +782,7 @@ function viewReview() {
     [flagged.length === 0, flagged.length ? `${flagged.length} flagged moment${flagged.length > 1 ? 's' : ''} to fill in` : 'No flagged moments left'],
     [scored === S.rubric.length, `Areas scored (${scored}/${S.rubric.length})`],
     [d.leadNotes.trim().length > 20, 'Lead Trainer feedback written'],
-    [d.decision !== 'pending', 'Outcome chosen']
+    [(d.decisionMode === 'auto' ? L.autoGrade(d.scores, course.grading).result : d.decision) !== 'pending', 'Outcome ready']
   ];
   const roundsAvail = [...(S.archivedRounds || []).map(a => a.index), S.round.index];
   return `<div class="page-title"><h1>Review round ${idx}</h1><p>Lead: <b>${esc(r.leadName || '—')}</b> · Support: <b>${esc(r.supportName || '—')}</b>${r.savedAt ? ` · last saved by ${esc(r.savedBy)} at ${clockOf(r.savedAt)}` : ''}</p></div>
@@ -750,7 +794,7 @@ function viewReview() {
       <textarea data-flagtext="${esc(o.id)}" maxlength="1000" placeholder="What happened?" style="margin-top:.4rem">${esc(o.text)}</textarea>
       <div class="row" style="margin-top:.4rem">${o.tagId ? '' : `<select data-flagarea="${esc(o.id)}" class="grow" style="min-width:160px">${[...S.rubric, 'Support Trainer', 'General'].map(a => `<option ${a === o.competency ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select>${seg('flagpol-' + o.id, [['+', '+', 'good'], ['-', '−', 'warn']], o.polarity, `data-flagpol="${esc(o.id)}"`, true)}`}<button class="btn btn-primary btn-sm" data-a="flagDone" data-id="${esc(o.id)}" data-round="${idx}" data-tagged="${o.tagId ? 1 : ''}">Done</button></div></div>`).join('')}</section>` : ''}
     ${incs.length ? `<section class="card"><h3>Scenario card ratings</h3>${incs.map(i => rateBlock(i, idx)).join('')}</section>` : ''}
-    <section class="card"><h3>Lead Trainer scores</h3><p class="small muted">Your notes for each area are listed to help you decide. The app never scores for you. “Not seen” is not a fail.</p>
+    <section class="card"><h3>Lead Trainer scores</h3><p class="small muted">Your notes for each area are listed to help you decide. Your scores feed the automatic score card under Outcome. “Not seen” does not count towards the areas needed.</p>
       ${S.rubric.map(k => { const ev = leadObs.filter(o => o.competency === k), plus = ev.filter(o => o.polarity === '+').length, minus = ev.filter(o => o.polarity === '-').length; return `<div class="rubric-item"><div class="row between"><b>${esc(k)}</b><span>${plus ? chip('+' + plus, 'good') : ''} ${minus ? chip('−' + minus, 'warn') : ''}</span></div>${ev.length ? `<div class="ev">${ev.map(o => `${o.polarity === '+' ? '＋' : o.polarity === '-' ? '－' : '•'} ${mmss(o.elapsed)} ${esc(obsLabel(o))}${o.tagId && o.text ? ': ' + esc(o.text) : ''}`).join('<br>')}</div>` : '<div class="ev">No notes logged for this area.</div>'}${seg('score', SCORE_LABELS, d.scores[k] || 'not-observed', `data-k="${esc(k)}" data-round="${idx}"`, true)}</div>`; }).join('')}</section>
   </div><div class="stack">
     <section class="card"><div class="card-head"><h3>Lead Trainer feedback</h3><button class="btn btn-sm btn-primary" data-a="draft" data-v="lead" data-round="${idx}">✨ Draft from notes</button></div>
@@ -758,8 +802,7 @@ function viewReview() {
     <section class="card"><div class="card-head"><h3>Support Trainer feedback</h3><button class="btn btn-sm" data-a="draft" data-v="support" data-round="${idx}">✨ Draft</button></div><p class="small muted">Developmental only. Not scored.</p>
       <textarea data-draft="supportNotes" data-round="${idx}" style="min-height:140px">${esc(d.supportNotes)}</textarea>
       ${supObs.length ? `<details style="margin-top:.4rem"><summary class="small">${supObs.length} support note${supObs.length > 1 ? 's' : ''}</summary>${supObs.map(o => obsRow(o, idx)).join('')}</details>` : ''}</section>
-    <section class="card"><h3>Outcome</h3><p class="small muted">Your decision as the assessor.</p>${seg('decision', OUTCOMES.map(([v, l]) => [v, l, v === 'competent' ? 'good' : v === 'not-yet-competent' ? 'bad' : '']), d.decision, `data-round="${idx}"`)}
-      ${(r.assessLog || []).length ? `<details style="margin-top:.6rem"><summary class="small">Change history (${r.assessLog.length} save${r.assessLog.length > 1 ? 's' : ''})</summary><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${new Date(x.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · <b>${esc(x.by)}</b> · ${esc({ pending: 'Not decided', competent: 'Competent', 'not-yet-competent': 'Not yet competent' }[x.decision] || x.decision)}</div>`).join('')}</div></details>` : ''}</section>
+    ${outcomeCard(r, d, idx)}
     <section class="card"><details><summary>All notes for this round (${r.observations.length})</summary>${r.observations.slice().sort((a, b) => (a.elapsed ?? 1e12) - (b.elapsed ?? 1e12)).map(o => obsRow(o, idx)).join('') || '<p class="muted">None.</p>'}<button class="btn btn-sm" style="margin-top:.5rem" data-a="note-after" data-round="${idx}">+ Add a note</button></details></section>
   </div></div>
   <div class="savebar"><span class="grow">${d.dirty ? '● Unsaved changes on this device' : '✓ All changes saved'}</span><button class="btn ${d.dirty ? 'btn-primary' : ''}" data-a="saveAssess" data-round="${idx}">Save</button></div>`;
@@ -802,7 +845,7 @@ function viewRecords() {
       ${rounds.slice().reverse().map(x => `<tr><td>${x.index}${x.current ? ' <span class="xs muted">(now)</span>' : ''}</td><td>${esc(x.leadName || '—')}</td><td>${esc(x.supportName || '—')}</td><td>${chip(word(x.decision), x.decision === 'competent' ? 'good' : x.decision === 'not-yet-competent' ? 'bad' : '')}</td><td>${x.observations}</td><td><button class="btn btn-sm" data-a="reviewRound" data-v="${x.index}" data-go="1">Review</button></td></tr>`).join('')}
     </tbody></table></div></section>
     <div class="cols cols-2">
-      <section class="card"><h3>Printable report</h3><p class="small muted">Scores, card ratings, all notes and written feedback for every round. Use “Save as PDF” in the print window.</p><button class="btn btn-primary" data-a="report">🖨 Print / Save as PDF</button></section>
+      <section class="card"><h3>PDF report</h3><p class="small muted">Every round with scores, the score card result, card ratings, all notes, written feedback and change history.</p><div class="row"><button class="btn btn-primary" data-a="pdf" data-v="this">⤓ This session (PDF)</button>${mySessions().length > 1 ? `<button class="btn" data-a="pdf" data-v="mine">⤓ All my sessions (${mySessions().length})</button>` : ''}</div><button class="linkbtn small" style="margin-top:.5rem" data-a="report">or print this session</button></section>
       <section class="card"><h3>Download data</h3><p class="small muted">Spreadsheet (CSV) of all events, notes and ratings, or a full JSON backup.</p><div class="row"><button class="btn" data-a="export" data-v="csv">⤓ CSV</button><button class="btn" data-a="export" data-v="json">⤓ JSON</button></div></section>
     </div>
     <section class="card"><h3>Card deck and course admin</h3><p class="small muted">See every role, trainer and scenario card. Course admins can also open every session and every evaluator's records (needs the admin passcode).</p><div class="row"><button class="btn" data-a="deck">🂠 Card deck</button><button class="btn" data-a="adminEnter">🗂 Course admin view</button></div></section>
@@ -840,7 +883,7 @@ function deckCards() {
   const out = [];
   for (const c of [...DECK_COLOURS, 'normal']) out.push({ type: 'role', colour: c, html: o => roleCard({ ...sample, round: { ...sample.round, myRole: c }, me: { ...sample.me, type: 'student' } }, o) });
   for (const t of ['lead', 'support']) out.push({ type: 'trainer', colour: 'trainer', html: o => roleCard({ ...sample, round: { ...sample.round, partnerName: t === 'lead' ? 'Support Trainer name' : 'Lead Trainer name' }, me: { ...sample.me, type: t } }, o) });
-  const list = S?.scenarios || L.SCENARIOS;
+  const list = !admin.on && S?.scenarios ? S.scenarios : [...course.cards, ...L.SCENARIOS];
   for (const sc of list) out.push({ type: 'scenario', colour: sc.color, html: o => scenarioCard(sc, { ...o, roundIndex: 1, who: 'For your eyes only' }) });
   return out;
 }
@@ -865,7 +908,11 @@ function deckSheet() {
 function refreshDeck() { const b = $('#deck-body'); if (b) b.innerHTML = deckBody(); }
 
 // ---------- course admin (read-only, every session) ----------
-const admin = { on: !!load('cs_admin', false), tab: 'sessions', list: null, more: false, loading: false, sel: null, data: null, table: null, tableProgress: '', err: '' };
+// Course-wide settings set by the admin: grading rules and extra scenario cards (read by every evaluator screen)
+let course = { grading: L.normalizeGrading(null), cards: [], gradingSet: false };
+async function loadCourse() { try { course = await E.loadSettings(await getStore()); render(); } catch {} }
+const admin = { on: !!load('cs_admin', false), tab: 'sessions', list: null, more: false, loading: false, sel: null, data: null, table: null, tableProgress: '', err: '', staff: {}, g: null, imp: null, impMode: 'add' };
+const adminName = () => load('cs_admin_name', '') || 'Course admin';
 const DECISION = { pending: 'Not decided', competent: 'Competent', 'not-yet-competent': 'Not yet competent' };
 const SCORE_WORD = { 'not-observed': 'Not seen', 1: '1 Emerging', 2: '2 Developing', 3: '3 Competent', 4: '4 Proficient' };
 const when = t => t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -879,11 +926,11 @@ async function adminEnter() {
     const st = await getStore();
     if (await E.adminActive(st)) return openAdmin();
     modal(`<h2>Course admin</h2><p class="small muted">Read-only view of every session, every evaluator's records and everything stored in the database. Enter the admin passcode set by whoever manages the Firebase project.</p>
-      <form id="admin-form" autocomplete="off"><div class="field"><label class="lbl" for="a-pass">Admin passcode</label><input id="a-pass" name="pass" type="password" required minlength="8" maxlength="128" autocomplete="off" autofocus></div>
+      <form id="admin-form" autocomplete="off"><div class="field"><label class="lbl" for="a-name">Your name</label><input id="a-name" name="name" required minlength="2" maxlength="64" value="${esc(load('cs_admin_name', ''))}" placeholder="Shown when you change a result"></div><div class="field"><label class="lbl" for="a-pass">Admin passcode</label><input id="a-pass" name="pass" type="password" required minlength="8" maxlength="128" autocomplete="off" autofocus></div>
       <div class="row"><button type="button" class="btn grow" data-a="close">Cancel</button><button class="btn btn-primary grow" type="submit">Open admin view</button></div></form>`, { center: true });
   } catch (e) { toast(e.message, true); }
 }
-function openAdmin() { admin.on = true; save('cs_admin', true); admin.sel = null; admin.data = null; closeModal(); render(true); window.scrollTo(0, 0); loadAdminList(true); }
+function openAdmin() { admin.on = true; save('cs_admin', true); admin.sel = null; admin.data = null; closeModal(); render(true); window.scrollTo(0, 0); loadAdminList(true); loadCourse(); }
 function exitAdmin() { admin.on = false; save('cs_admin', false); render(true); window.scrollTo(0, 0); }
 async function loadAdminList(reset) {
   if (admin.loading) return;
@@ -892,14 +939,40 @@ async function loadAdminList(reset) {
     const after = !reset && admin.list?.length ? admin.list[admin.list.length - 1].createdAt : undefined;
     const rows = await E.adminSessions(await getStore(), { limit: 50, after });
     admin.list = [...(reset ? [] : admin.list || []), ...rows]; admin.more = rows.length === 50;
+    loadStaffNames(rows);
   } catch (e) {
     if (/permission/i.test(e.message || '')) { admin.on = false; save('cs_admin', false); toast('Admin access has ended on this device (the admin passcode was changed).', true); }
     else admin.err = e.message;
   }
   admin.loading = false; render(true);
 }
-async function openAdminSession(code) {
-  admin.sel = code; admin.data = null; render(true); window.scrollTo(0, 0);
+// Evaluator names for each listed session (for search). One small read per evaluator, in the background.
+async function loadStaffNames(rows) {
+  const st = await getStore();
+  for (let i = 0; i < rows.length; i += 6) {
+    await Promise.all(rows.slice(i, i + 6).map(async x => { try { admin.staff[x.code] = (await st.getCollection(E.paths(x.code).staff)).map(d => d.data.name).filter(Boolean); } catch {} }));
+  }
+  if (admin.on && !admin.sel && admin.tab === 'sessions' && !fieldFocused()) render(true); else refreshSearchIndex();
+}
+function searchText(x) {
+  const d = new Date(x.createdAt || 0), pad = n => String(n).padStart(2, '0');
+  const dates = [d.toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' }), d.toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' }), d.toLocaleDateString('en-SG', { weekday: 'long' }),
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`, `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`, `${d.getDate()}/${d.getMonth() + 1}`];
+  return [x.code, x.cohort, x.lessonTopic, ...(admin.staff[x.code] || []), ...dates].join(' ').toLowerCase();
+}
+function refreshSearchIndex() {
+  document.querySelectorAll('.sess-row[data-code]').forEach(r => { const x = admin.list?.find(y => y.code === r.dataset.code); if (x) r.dataset.search = searchText(x); });
+  const q = $('#admin-q'); if (q) q.dispatchEvent(new Event('input', { bubbles: true }));
+}
+async function pdfAllSessions() {
+  if (!admin.list?.length) return;
+  const st = await getStore(); toast(`Collecting ${admin.list.length} sessions…`);
+  const out = [];
+  for (let i = 0; i < admin.list.length; i += 4) out.push(...await Promise.all(admin.list.slice(i, i + 4).map(x => E.adminRecords(st, x.code).catch(() => null))));
+  makePdf(out.filter(Boolean), `ClassroomSim_all_sessions_${stamp()}.pdf`, { title: 'Assessment report: all sessions', by: adminName() });
+}
+async function openAdminSession(code, keep) {
+  admin.sel = code; if (!keep) { admin.data = null; render(true); window.scrollTo(0, 0); }
   try {
     const raw = await E.adminRaw(await getStore(), code), P = E.paths(code);
     const state = raw[P.state]?.data;
@@ -934,25 +1007,29 @@ function adminTableCsv() {
 
 function renderAdmin() {
   const top = `<header class="topbar admin-top"><img src="${FAV}" alt="" width="34" height="34" style="border-radius:8px;border:2px solid #4a5a70">
-    <div class="t"><b>Course admin</b><span>Read-only · every session in this database</span></div>
+    <div class="t"><b>Course admin</b><span>Every session in this database</span></div>
     <button class="iconbtn" data-a="deck" aria-label="Card deck" title="Card deck">🂠</button>
     <button class="btn btn-sm" data-a="adminExit">Close</button></header>`;
   return `<div class="admin">${top}<main class="main admin-main">${admin.sel ? renderAdminSession() : renderAdminHome()}</main></div>`;
 }
 function renderAdminHome() {
-  const tabs = `<div class="tabs3">${[['sessions', 'Sessions'], ['assess', 'All assessments'], ['stored', "What's stored"]].map(([k, l]) => `<button class="${admin.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${l}</button>`).join('')}</div>`;
+  const tabs = `<div class="tabs3">${[['sessions', 'Sessions'], ['assess', 'All assessments'], ['grading', 'Score card rules'], ['cards', 'Scenario cards'], ['stored', "What's stored"]].map(([k, l]) => `<button class="${admin.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${l}</button>`).join('')}</div>`;
   let body = '';
   if (admin.tab === 'sessions') {
     body = admin.err ? `<div class="note">${esc(admin.err)}</div>` : !admin.list ? '<div class="empty">Loading sessions…</div>' : !admin.list.length ? '<div class="empty">No sessions yet.</div>'
-      : `<input id="admin-q" class="search" type="search" placeholder="Search by code, cohort or topic" aria-label="Search sessions">
-        <section class="card">${admin.list.map(x => { const open = Date.now() < (x.participantsUntil || 0); return `<div class="sess-row" data-search="${esc((x.code + ' ' + x.cohort + ' ' + x.lessonTopic).toLowerCase())}"><div class="grow"><b>${esc(x.lessonTopic || 'Session')}</b><div class="small muted"><span class="codechip">${esc(x.code)}</span> ${esc(x.cohort || '')} · ${when(x.createdAt)} · Round ${x.round?.index || 1} ${chip(open ? 'Open to participants' : 'Closed', open ? 'good' : '')}</div></div><button class="btn btn-sm btn-primary" data-a="adminOpenSession" data-v="${esc(x.code)}">Open</button></div>`; }).join('')}</section>
+      : `<input id="admin-q" class="search" type="search" placeholder="Search: code, cohort, topic, evaluator or date (e.g. 6 Nov, 2026-11-06)" aria-label="Search sessions">
+        <section class="card">${admin.list.map(x => { const open = Date.now() < (x.participantsUntil || 0); return `<div class="sess-row" data-code="${esc(x.code)}" data-search="${esc(searchText(x))}"><div class="grow"><b>${esc(x.lessonTopic || 'Session')}</b><div class="small muted"><span class="codechip">${esc(x.code)}</span> ${esc(x.cohort || '')} · ${when(x.createdAt)} · Round ${x.round?.index || 1} ${chip(open ? 'Open to participants' : 'Closed', open ? 'good' : '')}</div>${admin.staff[x.code]?.length ? `<div class="xs muted">Evaluators: ${esc(admin.staff[x.code].join(', '))}</div>` : ''}</div><button class="btn btn-sm btn-primary" data-a="adminOpenSession" data-v="${esc(x.code)}">Open</button></div>`; }).join('')}</section>
         <div class="row" style="margin-top:.8rem">${admin.more ? `<button class="btn" data-a="adminMore" ${admin.loading ? 'disabled' : ''}>Load older sessions</button>` : `<span class="small muted">${admin.list.length} session${admin.list.length === 1 ? '' : 's'}, newest first.</span>`}</div>`;
   } else if (admin.tab === 'assess') {
-    body = !admin.table ? `<section class="card"><h3>Every assessment, in one table</h3><p class="small muted">Loads the records of the ${admin.list?.length || 0} sessions listed under Sessions: every round, its Lead and Support Trainer, the outcome and which evaluator saved it.</p><button class="btn btn-primary" data-a="adminTable" ${admin.list?.length ? '' : 'disabled'}>Load all assessments</button></section>`
-      : `<div class="row" style="margin-bottom:.8rem"><span class="grow small muted">${admin.tableProgress ? 'Loading ' + admin.tableProgress + ' sessions…' : admin.table.length + ' rounds'}</span><button class="btn btn-sm" data-a="adminTableCsv" ${admin.tableProgress ? 'disabled' : ''}>⤓ CSV</button></div>
+    body = !admin.table ? `<section class="card"><h3>Every assessment, in one table</h3><p class="small muted">Loads the records of the ${admin.list?.length || 0} sessions listed under Sessions: every round, its Lead and Support Trainer, the outcome and which evaluator saved it.</p><div class="row"><button class="btn btn-primary" data-a="adminTable" ${admin.list?.length ? '' : 'disabled'}>Load all assessments</button><button class="btn" data-a="pdf" data-v="admin-all" ${admin.list?.length ? '' : 'disabled'}>⤓ PDF of all sessions</button></div></section>`
+      : `<div class="row" style="margin-bottom:.8rem"><span class="grow small muted">${admin.tableProgress ? 'Loading ' + admin.tableProgress + ' sessions…' : admin.table.length + ' rounds'}</span><button class="btn btn-sm" data-a="adminTableCsv" ${admin.tableProgress ? 'disabled' : ''}>⤓ CSV</button><button class="btn btn-sm btn-primary" data-a="pdf" data-v="admin-all" ${admin.tableProgress ? 'disabled' : ''}>⤓ PDF of all sessions</button></div>
         <section class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Date</th><th>Session</th><th>Round</th><th>Lead Trainer</th><th>Support</th><th>Outcome</th><th>Assessed by</th><th>Notes</th><th>Avg</th></tr></thead><tbody>
         ${admin.table.map(x => `<tr><td>${new Date(x.date).toLocaleDateString()}</td><td><button class="linkbtn" data-a="adminOpenSession" data-v="${esc(x.code)}">${esc(x.code)}</button><div class="xs muted">${esc(x.cohort)}</div></td><td>${x.round}</td><td>${esc(x.lead || '—')}</td><td>${esc(x.support || '—')}</td><td>${decisionChip(x.decision)}</td><td>${esc(x.by || '—')}${x.at ? `<div class="xs muted">${when(x.at)}</div>` : ''}</td><td>${x.notes}</td><td>${x.avg || '–'}</td></tr>`).join('') || '<tr><td colspan="9">No rounds yet.</td></tr>'}
         </tbody></table></div></section>`;
+  } else if (admin.tab === 'grading') {
+    body = adminGradingTab();
+  } else if (admin.tab === 'cards') {
+    body = adminCardsTab();
   } else {
     const row = (path, what, who) => `<tr><td class="mono small">${path}</td><td>${what}</td><td class="small">${who}</td></tr>`;
     body = `<section class="card"><h3>Everything ClassroomSim keeps in Firestore</h3><div class="tablewrap"><table class="tbl"><thead><tr><th>Where</th><th>What is in it</th><th>Who can read it</th></tr></thead><tbody>
@@ -965,13 +1042,46 @@ function renderAdminHome() {
       ${row('…/views/{id}', 'Copy of the cards that one participant can see', 'That participant (until closing), evaluators, admin')}
       ${row('…/proof/{id}', 'The start passcode typed when the session was created', 'Nobody')}
       ${row('admins/{id}', 'Proof that this device entered the admin passcode', 'That device only')}
+      ${row('settings/grading', 'Score card rules', 'Everyone signed in (evaluators need them); only the admin can change them')}
+      ${row('settings/scenarios', 'Scenario cards added by the admin from CSV', 'Everyone signed in; only the admin can change them')}
       ${row('config/access, config/admin', 'Start passcode and admin passcode', 'Nobody (Firebase console only)')}
       </tbody></table></div>
-      <p class="small muted">Nothing is deleted automatically. Phones keep only their own settings (text size, sound) and a list of sessions opened on that device. Participants sign in anonymously: no email or phone number is collected.</p></section>`;
+      <p class="small muted">The course admin can also change a round's result (logged in its change history), the score card rules and the course scenario cards. Nothing is deleted automatically. Phones keep only their own settings (text size, sound) and a list of sessions opened on that device. Participants sign in anonymously: no email or phone number is collected.</p></section>`;
   }
-  return `<div class="page-title"><h1>All records</h1><p>Every session started by every evaluator. You can look and download, but not change anything.</p></div>${tabs}${body}
+  return `<div class="page-title"><h1>All records</h1><p>Every session started by every evaluator. Signed in as <b>${esc(adminName())}</b>.</p></div>${tabs}${body}
     <div class="divider"></div><button class="back" data-a="adminSignOut">Sign out of admin on this device</button>`;
 }
+function adminGradingTab() {
+  const g = admin.g ||= structuredClone(course.grading);
+  return `<div class="cols cols-2"><section class="card"><h3>Automatic score card rules</h3><p class="small muted">Evaluators see the score card under Outcome on the Review tab. It suggests Competent or Not yet competent from the rubric scores. Evaluators and you can always override it with a reason.</p>
+    <div class="field"><span class="lbl">A score meets the standard at</span>${seg('g-level', [[2, '2 Developing'], [3, '3 Competent'], [4, '4 Proficient']], g.minLevel, '', true)}</div>
+    <div class="field"><span class="lbl">Areas that must meet it (out of ${L.RUBRIC.length})</span>${seg('g-areas', L.RUBRIC.map((_, i) => [i + 1, String(i + 1)]), g.minAreas, '', true)}</div>
+    <div class="field"><span class="lbl">Not yet competent if any area is below</span>${seg('g-floor', [[0, 'No floor'], [2, '2'], [3, '3']], g.noneBelow, '', true)}</div>
+    <div class="field"><span class="lbl">Must-pass areas (optional)</span>${L.RUBRIC.map(k => `<label class="checkrow"><input type="checkbox" data-greq="${esc(k)}" ${g.required.includes(k) ? 'checked' : ''}> ${esc(k)}</label>`).join('')}</div>
+    <div class="note small" id="g-rule">${esc(L.gradingRuleText(g))}</div>
+    <div class="row" style="margin-top:.8rem"><button class="btn btn-primary" data-a="gSave">Save rules</button><button class="btn btn-quiet" data-a="gReset">Undo changes</button></div>
+    <p class="xs muted">${course.gradingSet ? `Last changed by ${esc(course.gradingBy || 'admin')}, ${when(course.gradingAt)}.` : 'Using the default rules.'} Rounds already saved keep the rule they were graded with until someone saves them again.</p></section>
+    <section class="card"><h3>Example</h3><p class="small muted">A sample set of scores under these rules:</p><div id="g-example">${scoreCardHTML(EXAMPLE_SCORES, g)}</div></section></div>`;
+}
+const EXAMPLE_SCORES = { 'Lesson facilitation': '3', 'Classroom awareness': '3', 'Learner engagement': '2', 'Classroom management': '3', 'Differentiated support': '3', 'Lead–Support coordination': '2' };
+function adminCardsTab() {
+  const cards = course.cards, imp = admin.imp;
+  return `<section class="card"><h3>Course scenario cards (${cards.length})</h3><p class="small muted">Added to every session's deck, alongside the ${L.SCENARIOS.length} built-in cards. Evaluator screens pick them up the next time they open a session. Cards already dealt stay in the records as they were.</p>
+    <div class="row"><button class="btn" data-a="cardsTemplate">⤓ CSV template</button>${cards.length ? '<button class="btn" data-a="cardsExport">⤓ Current cards (CSV)</button>' : ''}<label class="btn btn-primary filebtn">⤒ Upload CSV<input type="file" id="cards-file" accept=".csv,text/csv" hidden></label></div>
+    ${imp ? `<div class="importbox"><b>${esc(imp.name)}</b>: ${imp.cards.length} card${imp.cards.length === 1 ? '' : 's'} ready${imp.errors.length ? `, ${imp.errors.length} row${imp.errors.length === 1 ? '' : 's'} skipped` : ''}.
+      ${imp.errors.length ? `<ul class="small">${imp.errors.slice(0, 12).map(e => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+      ${imp.cards.length ? `<div class="tablewrap"><table class="tbl"><thead><tr><th>ID</th><th>Colour</th><th>Title</th><th>Instruction</th></tr></thead><tbody>${imp.cards.slice(0, 50).map(c => `<tr><td class="mono">${esc(c.id)}</td><td><span class="cbar-dot ${esc(c.color)}"></span>${esc(c.color)}</td><td>${esc(c.title)}</td><td class="small">${esc(c.instruction)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="field" style="margin-top:.6rem">${seg('impmode', [['add', `Add to the ${cards.length} existing`], ['replace', 'Replace all course cards']], admin.impMode, '', true)}</div>
+      <div class="row"><button class="btn btn-primary" data-a="cardsImport">Save these cards</button><button class="btn btn-quiet" data-a="cardsCancel">Cancel</button></div>` : '<button class="btn btn-quiet" data-a="cardsCancel">Close</button>'}</div>` : ''}
+    <p class="hint">Columns: <span class="mono">${L.SCENARIO_CSV_HEADER.join(', ')}</span>. Only colour, title and instruction are required. Colour is red, yellow, blue, black or green. Phase is explanation, discussion, independent, group or conclusion. You can make the file in Excel and “Save as CSV”.</p></section>
+    ${cards.length ? `<section class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>ID</th><th>Colour</th><th>Title</th><th>Phase</th><th></th></tr></thead><tbody>${cards.map(c => `<tr><td class="mono">${esc(c.id)}</td><td><span class="cbar-dot ${esc(c.color)}"></span>${esc(c.color)}</td><td><b>${esc(c.title)}</b><div class="xs muted">${esc(c.instruction)}</div></td><td>${esc(c.phase)}</td><td><button class="btn btn-sm btn-quiet" data-a="cardDel" data-id="${esc(c.id)}" aria-label="Delete ${esc(c.title)}">✕</button></td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+}
+function refreshGrading() { const g = admin.g; const r = $('#g-rule'); if (r) r.textContent = L.gradingRuleText(g); const ex = $('#g-example'); if (ex) ex.innerHTML = scoreCardHTML(EXAMPLE_SCORES, g); }
+const CARD_TEMPLATE = L.scenarioCsv([
+  { id: 'P01', color: 'red', title: 'Phone under the desk', instruction: 'Check your phone quietly under the desk while the trainer is explaining. Do not make noise.', response: 'If approached, say: "Sorry, just checking the time."', recovery: 'Put the phone away after a calm reminder.', phase: 'explanation', difficulty: 'mild', objective: 'Noticing off-task behaviour', context: 'General classroom' },
+  { id: 'P02', color: 'blue', title: 'Cannot log in', instruction: 'Pretend you cannot log in to the platform. Raise your hand only after a minute.', response: 'If asked, say: "It keeps saying my password is wrong."', recovery: "Follow the trainer's steps and carry on.", phase: 'independent', difficulty: 'moderate', objective: 'Technical support without losing the class', context: 'Computer-based learning' }
+]);
+async function saveCards(cards, msg) { try { await E.adminSaveCards(await getStore(), cards, adminName()); admin.imp = null; await loadCourse(); toast(msg); render(true); } catch (e) { toast(e.message, true); } }
 function renderAdminSession() {
   const d = admin.data, back = `<button class="back" data-a="adminBack">‹ All sessions</button>`;
   if (!d) return `${back}<div class="empty">Loading session ${esc(admin.sel)}…</div>`;
@@ -984,12 +1094,15 @@ function renderAdminSession() {
     const inc = r.incidents.filter(i => i.status !== 'cancelled');
     return `<details class="card round-card" ${r === rec.rounds[rec.rounds.length - 1] ? 'open' : ''}><summary><b>Round ${r.index}</b> · Lead: ${esc(r.leadName || pn(r.leadId))} · Support: ${esc(r.supportName || pn(r.supportId))} ${decisionChip(r.decision)} <span class="small muted">${r.savedBy ? `assessed by ${esc(r.savedBy)}, ${when(r.savedAt)}` : 'not assessed yet'}</span></summary>
       <div class="cols cols-2" style="margin-top:.8rem">
+        <div>${scoreCardHTML(r.scores, r.autoResult?.grading || course.grading)}
+          <p class="small" style="margin:.5rem 0">Final result: ${decisionChip(r.decision)} ${r.savedAt ? (r.decisionMode === 'auto' ? '(automatic)' : '(set by hand)') : ''}${r.overrideReason ? ' · ' + esc(r.overrideReason) : ''}</p>
+          <form class="ovr-form" data-round="${r.index}" autocomplete="off"><div class="row"><select name="decision" class="grow" aria-label="Change the result"><option value="auto">Use the score card result</option><option value="competent">Competent</option><option value="not-yet-competent">Not yet competent</option><option value="pending">Not decided</option></select><button class="btn btn-sm" type="submit">Change result</button></div><input name="reason" maxlength="500" placeholder="Reason (needed when overriding the score card)" style="margin-top:.4rem"></form></div>
         <div><h4>Scores</h4><table class="tbl">${Object.entries(r.scores || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(SCORE_WORD[v] || v)}</td></tr>`).join('')}</table></div>
         <div><h4>Lead Trainer feedback</h4><pre class="pre">${esc(r.leadNotes || 'Not written')}</pre><h4>Support Trainer feedback</h4><pre class="pre">${esc(r.supportNotes || 'Not written')}</pre></div>
       </div>
       <h4>Scenario cards (${inc.length})</h4>${inc.length ? `<div class="tablewrap"><table class="tbl"><thead><tr><th>Time</th><th>Card</th><th>Learner</th><th>Dealt by</th><th>Noticed</th><th>Response</th><th>Handled by</th><th>Rated by</th></tr></thead><tbody>${inc.map(i => `<tr><td>${mmss(i.triggerElapsedMs)}</td><td><span class="cbar-dot ${esc(i.color)}"></span>${esc(i.title)}</td><td>${esc(pn(i.participantId))}</td><td>${esc(i.sentBy || 'timeline')}</td><td>${esc(i.rating?.noticed || '–')}</td><td>${esc(i.rating?.response || '–')}</td><td>${esc(i.rating?.handledBy || '–')}</td><td>${esc(i.rating?.by || '–')}${i.rating?.note ? `<div class="xs">${esc(i.rating.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">None dealt.</p>'}
       <h4>Observation notes (${r.observations.length})</h4>${r.observations.length ? `<div class="tablewrap"><table class="tbl"><thead><tr><th>Time</th><th>By</th><th>For</th><th>Area</th><th>Note</th></tr></thead><tbody>${r.observations.slice().sort((a, b) => (a.elapsed ?? 1e12) - (b.elapsed ?? 1e12)).map(o => { const t = o.tagId && L.QUICK_TAGS.find(x => x.id === o.tagId); return `<tr><td>${o.elapsed == null ? 'after' : mmss(o.elapsed)}</td><td>${esc(o.by)}</td><td>${o.target === 'support' ? 'Support' : 'Lead'}</td><td>${o.polarity === '+' ? '<b class="good-t">+</b> ' : o.polarity === '-' ? '<b class="bad-t">−</b> ' : ''}${esc(o.competency)}</td><td>${o.flagged ? '⚑ ' : ''}${esc([t?.short, o.text].filter(Boolean).join(': '))}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="small muted">None.</p>'}
-      ${(r.assessLog || []).length ? `<h4>Change history</h4><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${when(x.at)} · <b>${esc(x.by)}</b> saved ${esc(DECISION[x.decision] || x.decision)}</div>`).join('')}</div>` : ''}
+      ${(r.assessLog || []).length ? `<h4>Change history</h4><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${when(x.at)} · <b>${esc(x.by)}</b> · ${esc(DECISION[x.decision] || x.decision)}${x.mode === 'auto' ? ' (automatic)' : x.mode === 'manual' ? ' (by hand)' : ''}${x.reason ? ': ' + esc(x.reason) : ''}</div>`).join('')}</div>` : ''}
       <details style="margin-top:.6rem"><summary class="small">Event log (${r.events.length})</summary><div class="log">${r.events.map(e => `<div>${mmss(e.elapsed)} · ${esc(e.detail)}</div>`).join('')}</div></details>
     </details>`;
   }).join('');
@@ -997,7 +1110,7 @@ function renderAdminSession() {
   return `${back}
     <div class="page-title"><h1>${esc(rec.session.lessonTopic)}</h1><p>${esc(rec.session.cohort)} · ${rec.session.mode === 'assessment' ? 'Assessment' : 'Practice'} mode · started by ${esc(rec.session.instructorName)} · ${when(rec.session.createdAt)}</p></div>
     <div class="row" style="margin-bottom:1rem"><span class="codechip">${esc(d.code)}</span>${chip(open ? 'Open to participants until ' + clockOf(pub.participantsUntil) : 'Closed to participants', open ? 'good' : '')}
-      <button class="btn btn-sm" data-a="adminDl" data-v="json">⤓ Records JSON</button><button class="btn btn-sm" data-a="adminDl" data-v="csv">⤓ CSV</button><button class="btn btn-sm" data-a="adminDl" data-v="raw">⤓ Every document</button></div>
+      <button class="btn btn-sm btn-primary" data-a="pdf" data-v="admin-one">⤓ PDF report</button><button class="btn btn-sm" data-a="adminDl" data-v="json">⤓ Records JSON</button><button class="btn btn-sm" data-a="adminDl" data-v="csv">⤓ CSV</button><button class="btn btn-sm" data-a="adminDl" data-v="raw">⤓ Every document</button></div>
     <div class="cols cols-2">
       <section class="card"><h3>Evaluators (${d.staff.length})</h3><table class="tbl">${d.staff.map(x => `<tr><td><b>${esc(x.name)}</b>${x.owner ? ' ' + chip('started it') : ''}</td><td class="small muted">joined ${when(x.joinedAt)}</td></tr>`).join('')}</table>
         <p class="small muted" style="margin-bottom:0">Evaluator code: <span class="mono" data-reveal="${esc(d.pin || '')}">••••-••••-••</span> <button class="linkbtn" data-a="reveal">show</button></p></section>
@@ -1006,6 +1119,41 @@ function renderAdminSession() {
     <h2 style="margin-top:1.4rem">Rounds</h2>${rounds || '<div class="empty">No rounds yet.</div>'}
     <details class="card" style="margin-top:1rem"><summary><b>Everything stored for this session</b> <span class="small muted">${docs.length} database documents</span></summary>
       ${docs.map(([k, v]) => `<details class="rawdoc"><summary class="mono small">${esc(k)}</summary><pre class="pre">${esc(JSON.stringify(v, null, 2))}</pre></details>`).join('')}</details>`;
+}
+
+// ---------- PDF reports ----------
+// The PDF maker is a separate file (pdf.js), fetched the first time someone downloads a report.
+let pdfLoading = null;
+function pdfLib() {
+  if (window.CSPDF) return Promise.resolve(window.CSPDF);
+  const demoSrc = (() => { try { return window.parent !== window && window.parent.__DEMO?.pdf; } catch { return null; } })();
+  pdfLoading ||= new Promise((res, rej) => {
+    const sc = document.createElement('script');
+    if (demoSrc) { sc.textContent = demoSrc; document.head.appendChild(sc); return window.CSPDF ? res(window.CSPDF) : rej(new Error('PDF maker did not load')); }
+    sc.src = `pdf.js?v=${L.VERSION}`; sc.onload = () => res(window.CSPDF); sc.onerror = () => { pdfLoading = null; rej(new Error('Could not load the PDF maker. Check your connection and try again.')); };
+    document.head.appendChild(sc);
+  });
+  return pdfLoading;
+}
+async function makePdf(sessions, name, opts = {}) {
+  toast('Making the PDF…');
+  try {
+    const lib = await pdfLib();
+    const blob = lib.buildReport(sessions.filter(Boolean), { grading: course.grading, ...opts });
+    const u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
+    toast('PDF downloaded');
+  } catch (e) { console.error(e); toast(e.message || 'Could not make the PDF.', true); }
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+async function pdfThisSession() { try { await makePdf([await sess.exportData()], `ClassroomSim_${S.code}_${stamp()}.pdf`, { title: `Assessment report: ${S.lessonTopic}`, by: S.me?.name }); } catch (e) { toast(e.message, true); } }
+async function pdfMySessions() {
+  const st = await getStore(), list = mySessions();
+  toast(`Collecting ${list.length} sessions…`);
+  const data = await Promise.all(list.map(x => E.adminRecords(st, x.code).catch(() => null)));
+  const ok = data.filter(Boolean);
+  if (!ok.length) return toast('No sessions could be read.', true);
+  makePdf(ok, `ClassroomSim_my_sessions_${stamp()}.pdf`, { title: 'Assessment report: all my sessions', by: S?.me?.name });
 }
 
 // ---------- settings ----------
@@ -1023,6 +1171,8 @@ function settingsSheet() {
 }
 
 // ---------------- events ----------------
+let downOnBg = false;
+document.addEventListener('pointerdown', e => { downOnBg = !!e.target.classList?.contains('overlay'); }, true);
 document.addEventListener('click', async e => {
   const radio = e.target.closest('[data-radio]');
   if (radio) { const lab = radio.closest('label'); const form = lab.closest('form'); lab.querySelector('input').checked = true; form.querySelectorAll('[data-radio]').forEach(x => x.classList.toggle('btn-primary', x === radio)); e.preventDefault(); return; }
@@ -1031,7 +1181,8 @@ document.addEventListener('click', async e => {
   const el = e.target.closest('[data-a]');
   if (!el || el.disabled) return;
   const a = el.dataset.a, id = el.dataset.id, ri = Number(el.dataset.round) || undefined;
-  if (a === 'modal-bg') { if (e.target === el) closeModal(); return; }
+  // Close a pop-up only for a real tap on the dark background: not when a drag (e.g. selecting text) started inside it
+  if (a === 'modal-bg') { if (e.target === el && downOnBg && !String(window.getSelection?.() || '')) closeModal(); return; }
   switch (a) {
     case 'cf-yes': { const r = modalRoot._resolve; modalRoot._onClose = null; closeModal(); r?.(true); return; }
     case 'cf-no': case 'close': closeModal(); return;
@@ -1040,11 +1191,21 @@ document.addEventListener('click', async e => {
     case 'staffTab': staffTab = el.dataset.v; render(true); return;
     case 'settings': settingsSheet(); return;
     case 'deck': deckSheet(); return;
+    case 'pdf': if (el.dataset.v === 'mine') pdfMySessions(); else if (el.dataset.v === 'admin-one') { const d = admin.data; if (d?.rec) makePdf([d.rec], `ClassroomSim_${d.code}_${stamp()}.pdf`, { title: `Assessment report: ${d.rec.session.lessonTopic}`, by: adminName() }); } else if (el.dataset.v === 'admin-all') pdfAllSessions(); else pdfThisSession(); return;
     case 'flip-lib': tapBuzz(); el.classList.toggle('is-flipped'); return;
     case 'adminEnter': adminEnter(); return;
     case 'adminExit': exitAdmin(); return;
     case 'adminSignOut': if (await confirmBox('Sign out of admin on this device? You will need the admin passcode again.', 'Sign out')) { await E.adminSignOut(await getStore()); exitAdmin(); toast('Signed out of admin'); } return;
-    case 'adminTab': admin.tab = el.dataset.v; render(true); return;
+    case 'adminTab': admin.tab = el.dataset.v; if (admin.tab === 'grading') admin.g = null; render(true); return;
+    case 'gSave': try { await E.adminSaveGrading(await getStore(), admin.g, adminName()); await loadCourse(); admin.g = null; toast('Score card rules saved'); render(true); } catch (err) { toast(err.message, true); } return;
+    case 'gReset': admin.g = null; render(true); return;
+    case 'cardsTemplate': saveFile('ClassroomSim_scenario_cards_template.csv', CARD_TEMPLATE, 'text/csv'); return;
+    case 'cardsExport': saveFile(`ClassroomSim_course_cards_${stamp()}.csv`, L.scenarioCsv(course.cards), 'text/csv'); return;
+    case 'cardsCancel': admin.imp = null; render(true); return;
+    case 'cardsImport': { const imp = admin.imp; if (!imp?.cards.length) return; const replace = admin.impMode === 'replace';
+      if (replace && course.cards.length && !(await confirmBox(`Replace all ${course.cards.length} course cards with these ${imp.cards.length}?`, 'Replace', true))) return;
+      return saveCards(replace ? imp.cards : [...course.cards, ...imp.cards], `${imp.cards.length} card${imp.cards.length === 1 ? '' : 's'} saved`); }
+    case 'cardDel': if (await confirmBox('Delete this course card? Sessions that already used it keep their records.', 'Delete', true)) saveCards(course.cards.filter(c => c.id !== id), 'Card deleted'); return;
     case 'adminMore': loadAdminList(false); return;
     case 'adminOpenSession': openAdminSession(el.dataset.v); return;
     case 'adminBack': admin.sel = null; admin.data = null; render(true); return;
@@ -1060,7 +1221,7 @@ document.addEventListener('click', async e => {
     case 'leave': closeModal(); if (await confirmBox('Leave this session on this device?', 'Leave', true)) { if (identity?.kind === 'staff') forgetSession(identity.code); if (identity?.kind === 'participant') await sess?.leave?.(); signOut(); } return;
     case 'leave-now': signOut(true); return;
     case 'undo': { const u = lastToastUndo; toastEl.className = 'toast'; if (u) await u(); return; }
-    case 'nav': view = el.dataset.v; if (view === 'review') reviewIndex = null; render(true); window.scrollTo(0, 0); return;
+    case 'nav': view = el.dataset.v; if (view === 'review') { reviewIndex = null; loadCourse(); } render(true); window.scrollTo(0, 0); return;
     case 'copy': { const link = el.dataset.link === 'evalinvite' ? `${joinUrl('eval')}#k=${S.evaluatorPin}` : joinUrl('join'); try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } return; }
     case 'showQR': showQR(); return;
     case 'sendfilter': sendFilter = el.dataset.v; render(true); return;
@@ -1127,7 +1288,8 @@ document.addEventListener('click', async e => {
     }
     case 'saveAssess': {
       const r = roundForReview(); if (!r) return; const d = getDraft(r);
-      const ok = await cmd('assess', { scores: d.scores, leadNotes: d.leadNotes, supportNotes: d.supportNotes, decision: d.decision, roundIndex: r.index }, 'Saved');
+      if (d.decisionMode !== 'auto' && d.decision !== L.autoGrade(d.scores, course.grading).result && d.decision !== 'pending' && !String(d.reason || '').trim()) return toast('Add a short reason for overriding the score card.', true);
+      const ok = await cmd('assess', { scores: d.scores, leadNotes: d.leadNotes, supportNotes: d.supportNotes, decision: d.decision, decisionMode: d.decisionMode, reason: d.reason, grading: course.grading, roundIndex: r.index }, 'Saved');
       if (ok) { save(draftKey(r), null); if (r.index !== S.round.index) loadArchived(); else render(true); }
       return;
     }
@@ -1154,6 +1316,8 @@ async function onSeg(btn) {
   const group = btn.parentElement;
   const markOn = () => group.querySelectorAll('button').forEach(b => { const on = b === btn; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
   if (name === 'decktype') { deckType = v; return refreshDeck(); }
+  if (name === 'g-level' || name === 'g-areas' || name === 'g-floor') { markOn(); admin.g[{ 'g-level': 'minLevel', 'g-areas': 'minAreas', 'g-floor': 'noneBelow' }[name]] = Number(v); return refreshGrading(); }
+  if (name === 'impmode') { markOn(); admin.impMode = v; return; }
   if (name === 'deckcolour') { deckColour = v; return refreshDeck(); }
   if (name === 'deckside') { deckBacks = v === 'back'; return refreshDeck(); }
   if (name === 'c-dur') { createDraft.dur = Number(v); markOn(); return; }
@@ -1172,7 +1336,7 @@ async function onSeg(btn) {
   }
   if (name === 'score' || name === 'decision') {
     const r = roundForReview(); if (!r) return; const d = getDraft(r);
-    if (name === 'score') setDraft(r, { scores: { ...d.scores, [btn.dataset.k]: v } }); else setDraft(r, { decision: v });
+    if (name === 'score') setDraft(r, { scores: { ...d.scores, [btn.dataset.k]: v } }); else setDraft(r, v === 'auto' ? { decisionMode: 'auto' } : { decisionMode: 'manual', decision: v });
     render(true); return;
   }
   if (name.startsWith('flagpol-')) { markOn(); btn.classList.add(v === '+' ? 'good' : 'warn'); }
@@ -1187,6 +1351,8 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.greq && admin.g) { const k = t.dataset.greq; admin.g.required = t.checked ? [...new Set([...admin.g.required, k])] : admin.g.required.filter(x => x !== k); refreshGrading(); return; }
+  if (t.id === 'cards-file' && t.files?.[0]) { const f = t.files[0]; f.text().then(txt => { const res = L.parseScenarioCsv(txt, admin.impMode === 'replace' ? [] : course.cards.map(c => c.id)); admin.imp = { name: f.name, ...res }; render(true); }).catch(err => toast(err.message, true)); return; }
   if (t.dataset.pref) { prefs[t.dataset.pref] = t.checked; save('cs_prefs', prefs); if (t.dataset.pref === 'wake') t.checked ? requestWake() : releaseWake(); }
 });
 document.addEventListener('submit', async e => {
@@ -1197,7 +1363,15 @@ document.addEventListener('submit', async e => {
     if (f.id === 'join-form') { unlockAlerts(); const st = await getStore(); const code = await E.joinParticipant(st, b.code, b.name); startSession({ code, kind: 'participant' }); return; }
     if (f.id === 'staff-form') { unlockAlerts(); const st = await getStore(); const code = await E.joinStaff(st, b.code, b.name, b.pin); rememberSession({ code }); startSession({ code, kind: 'staff' }); return; }
     if (f.id === 'create-form') { unlockAlerts(); const st = await getStore(); const code = await E.createSession(st, { ...b, durationMinutes: createDraft.dur, mode: createDraft.mode }); rememberSession({ code, topic: b.lessonTopic || 'AI-enabled learning', cohort: b.cohort || 'CET Cohort' }); qrOnOpen = true; startSession({ code, kind: 'staff' }); return; }
-    if (f.id === 'admin-form') { const st = await getStore(); await E.adminSignIn(st, b.pass); openAdmin(); toast('Admin view open'); return; }
+    if (f.id === 'admin-form') { const st = await getStore(); await E.adminSignIn(st, b.pass); save('cs_admin_name', String(b.name || '').trim().slice(0, 64)); openAdmin(); toast('Admin view open'); return; }
+    if (f.classList.contains('ovr-form')) {
+      const d = admin.data, ri = Number(f.dataset.round), dec = b.decision;
+      const r = d?.rec?.rounds.find(x => x.index === ri); if (!r) return;
+      const auto = r.autoResult?.result || L.autoGrade(r.scores, course.grading).result;
+      if (dec !== 'auto' && dec !== auto && !String(b.reason || '').trim()) { toast('Add a short reason for the override.', true); return; }
+      await E.adminSetOutcome(await getStore(), d.code, ri, dec, b.reason || '', adminName() + ' (admin)', course.grading);
+      toast('Result updated'); await openAdminSession(d.code, true); return;
+    }
     if (f.id === 'rename-form') { await sess.rename(b.name); toast('Name updated. Trying again…'); return; }
     if (f.id === 'plan-form') { await cmd('addPlan', { scenarioId: b.scenarioId, offsetSeconds: Math.round(Number(b.min) * 60) }, 'Added to timeline'); return; }
     if (f.id === 'custom-form') { const send = e.submitter?.dataset.send === '1'; const r = await cmd('addCustomScenario', { ...b, sendNow: send }, send ? 'Saved and dealt' : 'Card saved. Find it under that learner.'); if (r) f.reset(); return; }
