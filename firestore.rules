@@ -1,0 +1,61 @@
+rules_version = '2';
+// ClassroomSim security rules (Spark plan, no server code).
+// Mirrored in src/store-memory.js -> allowed(), which the automated tests run against.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function sessionPath(code) { return /databases/$(db)/documents/sessions/$(code); }
+    function isStaff(code) { return signedIn() && exists(/databases/$(db)/documents/sessions/$(code)/staff/$(me())); }
+    function ownerAfter(code) { return getAfter(sessionPath(code)).data.ownerUid == me(); }
+    function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+
+    match /sessions/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && code.matches('^[A-Z2-9]{6}$')
+        && request.resource.data.ownerUid == me()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round']);
+      allow update: if isStaff(code) && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if signedIn() && resource.data.ownerUid == me();
+
+      // Staff PIN for evaluators
+      match /secret/{doc} {
+        allow read, update: if isStaff(code);
+        allow create: if signedIn() && ownerAfter(code);
+      }
+
+      // Staff members: the owner adds themself; anyone else needs the PIN
+      match /staff/{uid} {
+        allow read, delete: if isStaff(code);
+        allow create: if signedIn() && uid == me()
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'pin', 'owner'])
+          && request.resource.data.name is string && request.resource.data.name.size() <= 64
+          && (ownerAfter(code)
+              || request.resource.data.pin == get(/databases/$(db)/documents/sessions/$(code)/secret/pin).data.pin);
+        allow update: if signedIn() && uid == me() && onlyChanged(['seenAt', 'name']);
+      }
+
+      // Full session state and finished rounds: staff only
+      match /engine/{doc} { allow read, write: if isStaff(code); }
+      match /rounds/{idx} { allow read, write: if isStaff(code); }
+
+      // One participant's private cards
+      match /views/{uid} {
+        allow read: if signedIn() && (uid == me() || isStaff(code));
+        allow write: if isStaff(code);
+      }
+
+      // Participant join + "I read it" signals
+      match /people/{uid} {
+        allow read: if signedIn() && (uid == me() || isStaff(code));
+        allow create: if signedIn() && uid == me()
+          && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'acks', 'approached'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64;
+        allow update: if signedIn() && uid == me() && onlyChanged(['name', 'seenAt', 'acks', 'approached']);
+        allow delete: if signedIn() && (uid == me() || isStaff(code));
+      }
+    }
+  }
+}

@@ -1,0 +1,127 @@
+<title>ClassroomSim Live Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,600..900&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+/* Layout: a presenter strip on top, then the "classroom table": a laptop and two phones on grid paper, reflowing to tabs on phones. */
+:root {
+  --bg: #e8ecf1; --grid: rgba(22, 35, 52, .07); --surface: #ffffff; --ink: #162334; --muted: #55657a; --line: #c9d2dc;
+  --sun: #ffc83d; --sun-ink: #2a1f00; --bezel: #162334; --buzz: #ffc83d;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e151d; --grid: rgba(255, 255, 255, .05); --surface: #17212d; --ink: #e8eef5; --muted: #9aabbd; --line: #2b3a4b;
+  --sun: #ffc83d; --sun-ink: #2a1f00; --bezel: #04080d; --buzz: #ffd25c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0e151d; --grid: rgba(255, 255, 255, .05); --surface: #17212d; --ink: #e8eef5; --muted: #9aabbd; --line: #2b3a4b;
+  --sun: #ffc83d; --sun-ink: #2a1f00; --bezel: #04080d; --buzz: #ffd25c; color-scheme: dark }
+* { box-sizing: border-box; }
+body { background-color: var(--bg); background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; color: var(--ink); font: 15px/1.5 var(--body); }
+.wrap { max-width: 1480px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { padding-block: 18px 6px; }
+.titlebar { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+h1 { font-family: var(--display); font-weight: 900; font-stretch: 115%; font-size: 1.7rem; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+h1 span { background: var(--sun); color: var(--sun-ink); padding: 0 .35rem; border-radius: 6px; font-stretch: 100%; font-size: .75em; vertical-align: middle; }
+.lede { margin: 4px 0 0; color: var(--muted); max-width: 64ch; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.meta { font-family: var(--display); font-weight: 700; font-size: .85rem; color: var(--muted); padding: 7px 11px; border: 2px solid var(--line); border-radius: 10px; background: var(--surface); }
+.meta b { color: var(--ink); letter-spacing: .1em; }
+button.ctl { font: 800 .92rem var(--display); min-height: 42px; padding: 0 14px; border-radius: 10px; border: 2px solid var(--ink); background: var(--surface); color: var(--ink); cursor: pointer; box-shadow: 3px 3px 0 var(--ink); }
+button.ctl:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+button.ctl.primary { background: var(--sun); color: var(--sun-ink); border-color: var(--ink); }
+button.ctl:focus-visible, select:focus-visible, .tabs button:focus-visible { outline: 3px solid var(--sun); outline-offset: 2px; }
+.guide { list-style: none; counter-reset: s; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.guide li { counter-increment: s; background: var(--surface); border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px 11px 44px; position: relative; font-size: .9rem; color: var(--muted); min-width: 0; }
+.guide li::before { content: counter(s); position: absolute; left: 11px; top: 10px; width: 24px; height: 24px; border-radius: 7px; background: var(--sun); color: var(--sun-ink); border: 2px solid var(--ink); font: 900 .78rem/20px var(--display); text-align: center; }
+.guide b { color: var(--ink); }
+.tabs { display: none; gap: 6px; margin-top: 12px; }
+.tabs button { flex: 1; min-height: 46px; border: 2px solid var(--ink); background: var(--surface); color: var(--ink); border-radius: 10px; font: 800 .92rem var(--display); position: relative; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+.tabs button.ping::after { content: ""; position: absolute; top: 6px; right: 8px; width: 11px; height: 11px; border-radius: 50%; background: var(--buzz); border: 2px solid var(--ink); }
+.stage { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) 392px 392px; align-items: start; padding-block: 18px 28px; }
+.pane { min-width: 0; }
+.pane-head { display: flex; align-items: center; gap: 10px; min-height: 42px; margin-bottom: 8px; flex-wrap: wrap; }
+.pane-head b { font-family: var(--display); font-weight: 900; font-size: 1.05rem; }
+.pane-head .sub { color: var(--muted); font-size: .88rem; }
+.pane-head select { font: 700 .88rem var(--body); min-height: 38px; border-radius: 9px; border: 2px solid var(--line); background: var(--surface); color: var(--ink); padding: 0 8px; max-width: 100%; }
+.follow { display: flex; gap: 6px; align-items: center; font-size: .84rem; color: var(--muted); margin: -2px 0 8px; }
+.device { position: relative; background: var(--bezel); transition: box-shadow .2s; box-shadow: 6px 6px 0 rgba(22, 35, 52, .25); }
+.device iframe { display: block; width: 100%; border: 0; background: #eef1f5; }
+.laptop { border-radius: 16px; padding: 10px; }
+.laptop iframe { height: 880px; border-radius: 8px; }
+.phone { border-radius: 42px; padding: 12px; width: 392px; max-width: 100%; }
+.phone::before { content: ""; position: absolute; top: 18px; left: 50%; width: 82px; height: 8px; margin-left: -41px; border-radius: 6px; background: #3a4757; z-index: 2; }
+.phone iframe { height: 800px; border-radius: 32px; }
+.buzzflag { position: absolute; z-index: 3; top: -13px; right: 18px; background: var(--buzz); color: #2b2100; border: 2px solid #162334; font: 900 .78rem var(--display); padding: 3px 10px; border-radius: 8px; opacity: 0; transform: translateY(4px); transition: .15s; pointer-events: none; }
+.device.buzzing { animation: shake .09s linear 0s 8; box-shadow: 0 0 0 5px var(--buzz); }
+.device.buzzing .buzzflag { opacity: 1; transform: none; }
+@keyframes shake { 0% { transform: translateX(0); } 25% { transform: translateX(-3px) rotate(-.4deg); } 75% { transform: translateX(3px) rotate(.4deg); } 100% { transform: translateX(0); } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+footer { color: var(--muted); font-size: .86rem; padding-block: 0 28px; }
+footer p { max-width: 92ch; margin: 4px 0; }
+@media (max-width: 1379px) { .stage { grid-template-columns: repeat(2, minmax(0, 392px)); justify-content: center; } .pane-ins { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .guide { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 859px) {
+  .tabs { display: flex; }
+  .stage { grid-template-columns: minmax(0, 1fr); }
+  .pane { display: none; }
+  body[data-view="ins"] .pane[data-pane="ins"], body[data-view="ev"] .pane[data-pane="ev"], body[data-view="p"] .pane[data-pane="p"] { display: block; }
+  .phone { margin: 0 auto; }
+  .laptop iframe { height: 780px; }
+}
+@media (max-width: 520px) { .guide { grid-template-columns: minmax(0, 1fr); } .phone { border-radius: 32px; padding: 8px; } .phone iframe { border-radius: 26px; height: 740px; } }
+@media (prefers-reduced-motion: reduce) { .device.buzzing { animation: none; } }
+</style>
+
+<header class="top"><div class="wrap">
+  <div class="titlebar">
+    <div><h1>ClassroomSim <span>3.1 demo</span></h1>
+      <p class="lede">The real app on three screens: an evaluator's laptop, a second evaluator's phone and a participant's phone, all connected. 8 sample participants and a second evaluator have joined. Nothing leaves this page, and Reset starts again.</p></div>
+    <div class="controls">
+      <span class="meta">Code <b id="m-code">······</b> · Evaluator PIN <b id="m-pin">······</b></span>
+      <button class="ctl primary" id="b-quick" type="button">Quick start a round</button>
+      <button class="ctl" id="b-skip" type="button">Skip ahead 30 s</button>
+      <button class="ctl" id="b-reset" type="button">Reset demo</button>
+    </div>
+  </div>
+  <ol class="guide">
+    <li><b>Evaluator laptop:</b> the join QR pops up as soon as a session is created. Close it, then follow “What to do now”. Confirm trainers, deal role cards, Start. Or press Quick start.</li>
+    <li><b>Participant phone:</b> the role card arrives face down. Tap it to flip it open.</li>
+    <li><b>Either evaluator screen, Run:</b> pick a learner, pick a card, Deal. That phone shakes and the card is dealt face down.</li>
+    <li><b>Evaluator phone, Observe:</b> tap ⚑ Flag, then what it was. End the round, then Review and Draft from notes.</li>
+  </ol>
+  <div class="tabs" role="tablist" aria-label="Choose a screen">
+    <button type="button" role="tab" data-v="ins" aria-selected="true">Evaluator laptop</button>
+    <button type="button" role="tab" data-v="ev" aria-selected="false">2nd evaluator</button>
+    <button type="button" role="tab" data-v="p" aria-selected="false">Participant</button>
+  </div>
+</div></header>
+
+<main class="stage wrap">
+  <section class="pane pane-ins" data-pane="ins">
+    <div class="pane-head"><b>Evaluator laptop</b><span class="sub">Louis, who started the session</span></div>
+    <div class="device laptop" id="d-ins"><span class="buzzflag">Alert</span><iframe id="f-ins" title="Evaluator laptop screen"></iframe></div>
+  </section>
+  <section class="pane" data-pane="ev">
+    <div class="pane-head"><b>Second evaluator</b><span class="sub">Ms Koh's phone, same screens</span></div>
+    <div class="follow">Joined with the evaluator PIN</div>
+    <div class="device phone" id="d-ev"><span class="buzzflag">Vibrating</span><iframe id="f-ev" title="Evaluator phone"></iframe></div>
+  </section>
+  <section class="pane" data-pane="p">
+    <div class="pane-head"><b>Participant</b><label class="sr" for="pick">Show the phone of</label><select id="pick"></select></div>
+    <label class="follow"><input type="checkbox" id="follow" checked> Jump to whoever is dealt a card</label>
+    <div class="device phone" id="d-p"><span class="buzzflag">Vibrating</span><iframe id="f-p" title="Participant phone"></iframe></div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>In real use everyone opens the link on their own device and the data lives in your Firebase project (free Spark plan). Here an in-page copy of the database runs instead, with the same access rules, so each phone still only sees its own cards.</p>
+  <p>Printing and downloads are switched off inside this preview. Sound plays after your first tap on a screen.</p>
+</footer>
+
+<script>window.__DEMO = { css: __APP_CSS__, js: __APP_JS__, favicon: __FAVICON__ };</script>
+<script>
+/*__HOST__*/
+</script>
