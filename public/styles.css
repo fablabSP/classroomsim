@@ -411,3 +411,29 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .access .grow { min-width: 220px; }
 .access.soon { background: var(--warn-soft); }
 .access.closed { background: var(--surface-2); border-style: dashed; }
+
+/* ---------- card deck ---------- */
+.sheet.wide { max-width: 1100px; }
+.deck-filters { display: flex; flex-wrap: wrap; gap: .5rem; }
+.deck-filters .seg { flex: 1 1 auto; }
+.deckgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 1.1rem; justify-items: center; align-items: start; margin-top: .8rem; }
+.deckgrid .pcard { --w: min(100%, 300px); }
+
+/* ---------- course admin ---------- */
+.admin-top .btn { min-height: 44px; }
+.admin-main { padding-bottom: 2.5rem; }
+.tabs3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; margin-bottom: 1rem; }
+.tabs3 button { min-height: 48px; border-radius: 10px; border: 2px solid var(--ink); background: #fff; font-weight: 800; font-family: var(--display); cursor: pointer; font-size: .92rem; padding: 0 .3rem; }
+.tabs3 button.on { background: var(--ink); color: #fff; }
+.search { width: 100%; min-height: 48px; border: 2px solid var(--ink); border-radius: 12px; padding: 0 .9rem; font: inherit; margin-bottom: .8rem; background: #fff; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--blue); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); border: 1.5px solid var(--line); border-radius: 10px; padding: .6rem .7rem; font: .85rem/1.45 ui-monospace, Menlo, Consolas, monospace; margin: .3rem 0 .8rem; max-height: 420px; overflow: auto; }
+.round-card { margin-top: .8rem; }
+.round-card > summary, .rawdoc > summary { cursor: pointer; display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }
+.round-card h4 { margin: 1rem 0 .4rem; font-family: var(--display); }
+.rawdoc { border-top: 1.5px solid var(--line); padding: .45rem 0; }
+.namegrid { display: flex; flex-wrap: wrap; gap: .35rem; }
+.namegrid span { border: 1.5px solid var(--line); border-radius: 8px; padding: .15rem .5rem; font-size: .9rem; }
+.cbar-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: .35rem; border: 1.5px solid var(--ink); background: var(--r-normal); vertical-align: -1px; }
+.cbar-dot.red { background: var(--r-red); } .cbar-dot.green { background: var(--r-green); } .cbar-dot.yellow { background: var(--r-yellow); } .cbar-dot.blue { background: var(--r-blue); } .cbar-dot.black { background: var(--r-black); }
+.good-t { color: var(--good); } .bad-t { color: var(--bad); }

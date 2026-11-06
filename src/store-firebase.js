@@ -1,7 +1,7 @@
 // Cloud Firestore + anonymous sign-in. Works on the free Spark plan (no Cloud Functions).
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
-import { initializeFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, writeBatch } from 'firebase/firestore';
+import { initializeFirestore, doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, runTransaction, writeBatch, query, orderBy, limit, startAfter } from 'firebase/firestore';
 
 export class FirebaseStore {
   constructor(config) {
@@ -19,6 +19,14 @@ export class FirebaseStore {
   ref(path) { return doc(this.db, path); }
   async getDoc(path) { const s = await getDoc(this.ref(path)); return s.exists() ? s.data() : null; }
   async getCollection(path) { const qs = await getDocs(collection(this.db, path)); return qs.docs.map(d => ({ id: d.id, data: d.data() })); }
+  async query(path, { orderBy: field, desc = false, limit: n = 50, after } = {}) {
+    const parts = [];
+    if (field) parts.push(orderBy(field, desc ? 'desc' : 'asc'));
+    if (field && after != null) parts.push(startAfter(after));
+    parts.push(limit(n));
+    const qs = await getDocs(query(collection(this.db, path), ...parts));
+    return qs.docs.map(d => ({ id: d.id, data: d.data() }));
+  }
   setDoc(path, data, opts = {}) { return setDoc(this.ref(path), data, { merge: !!opts.merge }); }
   updateDoc(path, data) { return updateDoc(this.ref(path), data); }
   deleteDoc(path) { return deleteDoc(this.ref(path)); }

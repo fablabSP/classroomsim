@@ -20,11 +20,30 @@ service cloud.firestore {
            == get(/databases/$(db)/documents/config/access).data.startCode;
     }
 
+    // Course admin (super admin): read-only access to every session. Turned on by creating
+    // config/admin { code: "a long passcode" } in the console. Changing that code signs every admin out.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(db)/documents/admins/$(me()))
+        && exists(/databases/$(db)/documents/config/admin)
+        && get(/databases/$(db)/documents/admins/$(me())).data.key == get(/databases/$(db)/documents/config/admin).data.code;
+    }
+
     // Course settings: never readable or writable from the app (edit them in the Firebase console)
     match /config/{doc} { allow read, write: if false; }
 
+    // Proof of the admin passcode. Only accepted when it matches config/admin.code.
+    match /admins/{uid} {
+      allow get, delete: if signedIn() && uid == me();
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['key', 'at'])
+        && exists(/databases/$(db)/documents/config/admin)
+        && request.resource.data.key == get(/databases/$(db)/documents/config/admin).data.code;
+    }
+
     match /sessions/{code} {
-      allow read: if signedIn();
+      allow get: if signedIn();
+      allow list: if isAdmin();
       allow create: if signedIn()
         && code.matches('^[A-Z2-9]{6}$')
         && request.resource.data.ownerUid == me()
@@ -40,7 +59,7 @@ service cloud.firestore {
 
       // Evaluator code: readable by evaluators, changed only by the evaluator who started the session
       match /secret/{doc} {
-        allow read: if isStaff(code);
+        allow read: if isStaff(code) || isAdmin();
         allow update: if isOwner(code);
         allow create: if signedIn() && ownerAfter(code);
       }
@@ -48,7 +67,7 @@ service cloud.firestore {
       // Evaluators: the session owner adds themself; anyone else needs the evaluator code.
       // Only the owner can remove an evaluator (evaluators can remove themselves).
       match /staff/{uid} {
-        allow read: if isStaff(code);
+        allow read: if isStaff(code) || isAdmin();
         allow delete: if signedIn() && (uid == me() || isOwner(code));
         allow create: if signedIn() && uid == me()
           && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'pin', 'owner'])
@@ -58,19 +77,19 @@ service cloud.firestore {
         allow update: if signedIn() && uid == me() && onlyChanged(['seenAt', 'name']);
       }
 
-      // Full session state and finished rounds: staff only
-      match /engine/{doc} { allow read, write: if isStaff(code); }
-      match /rounds/{idx} { allow read, write: if isStaff(code); }
+      // Full session state and finished rounds: staff (and read-only for the course admin)
+      match /engine/{doc} { allow read: if isStaff(code) || isAdmin(); allow write: if isStaff(code); }
+      match /rounds/{idx} { allow read: if isStaff(code) || isAdmin(); allow write: if isStaff(code); }
 
       // One participant's private cards
       match /views/{uid} {
-        allow read: if signedIn() && ((uid == me() && participantsOpen(code)) || isStaff(code));
+        allow read: if signedIn() && ((uid == me() && participantsOpen(code)) || isStaff(code) || isAdmin());
         allow write: if isStaff(code);
       }
 
       // Participant join + "I read it" signals
       match /people/{uid} {
-        allow read: if signedIn() && (uid == me() || isStaff(code));
+        allow read: if signedIn() && (uid == me() || isStaff(code) || isAdmin());
         allow create: if signedIn() && uid == me() && participantsOpen(code)
           && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'acks', 'approached'])
           && request.resource.data.name is string

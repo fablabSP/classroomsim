@@ -2,6 +2,7 @@
 // three app screens in iframes, and a few presenter controls.
 import { MemoryHub, MemoryStore, serveHub } from './store-memory.js';
 import * as E from './engine.js';
+import { SCENARIOS } from './logic.js';
 
 const APP_CSS = window.__DEMO.css, APP_JS = window.__DEMO.js, FAVICON = window.__DEMO.favicon;
 const NAMES = ['Aisha Rahman', 'Ben Tan', 'Chloe Lim', 'Daniel Ong', 'Esther Goh', 'Farid Ali', 'Grace Wong', 'Hari Kumar'];
@@ -59,10 +60,51 @@ function onState(d) {
   }
 }
 
+const DEMO_ADMIN = 'DEMO-ADMIN-2026';
+// Yesterday's class, run by another evaluator and fully assessed, so the admin view has records to show.
+async function seedPastSession() {
+  const koh = new MemoryStore(hub, 'u-mskoh');
+  const c = await E.createSession(koh, { instructorName: 'Ms Koh', cohort: 'CET Cohort 06', lessonTopic: 'Making slides with Canva AI', durationMinutes: 10, mode: 'assessment' });
+  const st = new E.StaffSession(koh, c).start();
+  const names = ['Ivan Lee', 'Jia Hui', 'Kumar Raj', 'Mei Ling', 'Nur Aisyah', 'Oliver Teo'];
+  for (const n of names) await E.joinParticipant(new MemoryStore(hub, 'p6-' + n.split(' ')[0].toLowerCase()), c, n);
+  for (let i = 0; i < 100 && (st.state?.participants.length || 0) < names.length; i++) await new Promise(r => setTimeout(r, 20));
+  const ids = st.state.participants.map(p => p.id);
+  await st.command({ action: 'setTrainers', leadId: ids[0], supportId: ids[1] });
+  await st.command({ action: 'assignRoles' });
+  await st.command({ action: 'setAutoPrompts', on: false });
+  await st.command({ action: 'start' });
+  for (let i = 0; i < 100 && st.state?.round.status !== 'running'; i++) await new Promise(r => setTimeout(r, 20));
+  const red = Object.keys(st.state.round.roles).find(k => st.state.round.roles[k] === 'black') || Object.keys(st.state.round.roles)[0];
+  const colour = st.state.round.roles[red];
+  const sc = SCENARIOS.find(x => x.color === colour);
+  if (sc) {
+    await st.command({ action: 'trigger', scenarioId: sc.id, participantId: red });
+    for (let i = 0; i < 100 && !st.state.round.incidents.length; i++) await new Promise(r => setTimeout(r, 20));
+    const inc = st.state.round.incidents[0];
+    await st.command({ action: 'rateIncident', instanceId: inc.id, noticed: 'quick', response: 'effective', handledBy: 'lead', note: 'Moved closer and redirected calmly.' });
+    await st.command({ action: 'resolve', instanceId: inc.id });
+  }
+  await st.command({ action: 'observe', text: 'Clear demo of the Magic Design prompt, checked understanding with two questions.', competency: 'Lesson facilitation', polarity: '+' });
+  await st.command({ action: 'observe', text: 'Stayed at the front for most of solo work; missed two learners falling behind.', competency: 'Classroom awareness', polarity: '-' });
+  await st.command({ action: 'end' });
+  await st.command({ action: 'assess', decision: 'competent', scores: { 'Lesson facilitation': '3', 'Classroom awareness': '2', 'Learner engagement': '3', 'Classroom management': '3', 'Differentiated support': '2', 'Lead–Support coordination': '3' }, leadNotes: 'Confident delivery and a well-paced demonstration. Next time, circulate during solo work to spot learners who fall behind.', supportNotes: 'Good timing when stepping in with the disruptive learner.' });
+  await st.command({ action: 'closeParticipants' });
+  st.stop();
+  // Make it yesterday
+  const day = 24 * 3600 * 1000, sp = E.paths(c).session, doc = hub.docs.get(sp);
+  doc.data = { ...doc.data, createdAt: doc.data.createdAt - day, participantsUntil: doc.data.participantsUntil - day };
+  const sd = hub.docs.get(E.paths(c).state), s0 = JSON.parse(sd.data.data);
+  s0.createdAt -= day; s0.participantsUntil -= day; sd.data = { ...sd.data, data: JSON.stringify(s0) };
+}
+
 async function seed() {
   unsub?.(); host?.stop();
   hub = new MemoryHub({ rules: true }); routerReady();
   seenInc = new Set(); pickerSig = ''; state = null;
+  // Course admin passcode (in real use: config/admin in the Firebase console)
+  hub.docs.set('config/admin', { data: { code: DEMO_ADMIN }, version: 1 });
+  await seedPastSession();
   const owner = new MemoryStore(hub, 'u-louis');
   code = await E.createSession(owner, { instructorName: 'Louis', cohort: 'CET Cohort 07', lessonTopic: 'Prompting an AI chatbot', durationMinutes: 10, mode: 'practice' });
   people = [];

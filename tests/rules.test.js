@@ -3,7 +3,7 @@
 import test, { before, after } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, writeBatch, collection, query, orderBy, limit } from 'firebase/firestore';
 
 let env;
 const CODE = 'ABC234', P = `sessions/${CODE}`;
@@ -64,4 +64,20 @@ test('staff join needs the PIN', async () => {
 test('session codes cannot be taken over', async () => {
   const x = env.authenticatedContext('x').firestore();
   await assertFails(setDoc(doc(x, P), { ownerUid: 'x', createdAt: 1, updatedAt: 1, cohort: '', lessonTopic: '' }));
+});
+test('course admin: passcode required, read-only, cannot list sessions without it', async () => {
+  const a = env.authenticatedContext('adm').firestore();
+  await assertFails(getDocs(collection(a, 'sessions')));
+  await assertFails(setDoc(doc(a, 'admins/adm'), { key: 'Admin-Pass-0001', at: 1 })); // not set up yet
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'config/admin'), { code: 'Admin-Pass-0001' }));
+  await assertFails(setDoc(doc(a, 'admins/adm'), { key: 'wrong', at: 1 }));
+  await assertFails(setDoc(doc(a, 'admins/other'), { key: 'Admin-Pass-0001', at: 1 }));
+  await assertSucceeds(setDoc(doc(a, 'admins/adm'), { key: 'Admin-Pass-0001', at: 1 }));
+  await assertSucceeds(getDocs(query(collection(a, 'sessions'), orderBy('createdAt', 'desc'), limit(10))));
+  await assertSucceeds(getDoc(doc(a, `${P}/engine/state`)));
+  await assertSucceeds(getDoc(doc(a, `${P}/secret/pin`)));
+  await assertFails(setDoc(doc(a, `${P}/engine/state`), { data: '{}' }));
+  await assertFails(getDoc(doc(a, 'config/admin')));
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'config/admin'), { code: 'Changed-Pass-0002' }));
+  await assertFails(getDoc(doc(a, `${P}/engine/state`)));
 });

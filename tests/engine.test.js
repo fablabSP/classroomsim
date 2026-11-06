@@ -184,3 +184,46 @@ test('participants are locked out after the time limit; evaluators keep full acc
   assert.ok(await p0.st.getDoc(`${P.views}/u-p0`), 'reopened: participant can read again');
   staff.stop();
 });
+
+test('course admin: needs the admin passcode, sees every session read-only, signed out when the code changes', async () => {
+  const { hub, code, staff, people } = await setup(4);
+  const P = E.paths(code);
+  await staff.command({ action: 'observe', text: 'Good questioning', competency: 'General' });
+  const code2 = await E.createSession(new MemoryStore(hub, 'u-other'), { instructorName: 'Ms Koh', cohort: 'C2', lessonTopic: 'Laser cutting' });
+  const outsider = new MemoryStore(hub, 'u-snoop');
+  // Nobody can list sessions, and admin sign-in fails, until config/admin exists
+  await assert.rejects(outsider.query('sessions', { orderBy: 'createdAt', desc: true }), /permission/i);
+  await assert.rejects(E.adminSignIn(outsider, 'whatever-passcode'), /not correct|not been set up/i);
+  hub.docs.set('config/admin', { data: { code: 'Strong-Admin-Passcode-2026' }, version: 1 });
+  await assert.rejects(E.adminSignIn(outsider, 'wrong-passcode'), /not correct/i);
+  assert.equal(await E.adminActive(outsider), false);
+  await assert.rejects(people[0].st.query('sessions', {}), /permission/i, 'participants cannot list sessions');
+  await assert.rejects(staff.store.query('sessions', {}), /permission/i, 'evaluators cannot list other sessions');
+  await assert.rejects(outsider.getDoc('config/admin'), /permission/i, 'nobody can read the admin passcode');
+  // Correct passcode
+  const admin = new MemoryStore(hub, 'u-admin');
+  await E.adminSignIn(admin, '  Strong-Admin-Passcode-2026 ');
+  assert.equal(await E.adminActive(admin), true);
+  const list = await E.adminSessions(admin);
+  assert.deepEqual(new Set(list.map(x => x.code)), new Set([code, code2]));
+  const rec = await E.adminRecords(admin, code);
+  assert.equal(rec.session.code, code);
+  assert.ok(rec.rounds.some(r => r.observations.some(o => o.text === 'Good questioning')), 'sees evaluator notes');
+  const raw = await E.adminRaw(admin, code);
+  assert.ok(raw[P.pin]?.pin, 'sees the evaluator code');
+  assert.ok(Object.keys(raw).some(k => k.startsWith(P.people + '/')), 'sees participant docs');
+  // Read-only: cannot change anything
+  await assert.rejects(admin.setDoc(P.state, { data: '{}' }), /permission/i);
+  await assert.rejects(admin.updateDoc(P.session, { participantsUntil: 1 }), /permission/i);
+  await assert.rejects(admin.setDoc(`${P.staff}/u-admin`, { name: 'Admin' }), /permission/i);
+  await assert.rejects(admin.deleteDoc(`${P.people}/u-p0`), /permission/i);
+  await assert.rejects(admin.getDoc(`${P.session}/proof/u-owner`), /permission/i, 'start passcode proof stays hidden');
+  // Someone else cannot piggyback on the admin's proof doc
+  await assert.rejects(outsider.getDoc('admins/u-admin'), /permission/i);
+  await assert.rejects(outsider.setDoc('admins/u-admin', { key: 'x', at: 1 }), /permission/i);
+  // Changing the passcode signs every admin out
+  hub.docs.set('config/admin', { data: { code: 'New-Admin-Passcode-2027' }, version: 2 });
+  assert.equal(await E.adminActive(admin), false);
+  await assert.rejects(admin.getDoc(P.state), /permission/i);
+  staff.stop();
+});

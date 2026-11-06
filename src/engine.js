@@ -297,3 +297,52 @@ export class ParticipantSession {
   rename(name) { return this.store.updateDoc(this.me, { name: String(name).trim().slice(0, 64) }); }
   leave() { this.stop(); return this.store.deleteDoc(this.me).catch(() => {}); }
 }
+
+// ---------- course admin (read-only, every session) ----------
+// Turned on by creating config/admin { code: "..." } in the Firebase console. Signing in writes
+// admins/{uid} { key }; the rules only accept it if key matches, and keep checking it on every read,
+// so changing config/admin.code signs every admin out at once.
+const adminPath = store => `admins/${store.uid}`;
+export async function adminSignIn(store, passcode) {
+  const key = String(passcode || '').trim();
+  if (key.length < 8) throw new L.UserError('Enter the admin passcode.');
+  try { await store.setDoc(adminPath(store), { key, at: Date.now() }); }
+  catch (e) {
+    if (isNoDb(e)) throw new L.UserError(NO_DB_MSG);
+    if (isDenied(e)) throw new L.UserError('That admin passcode is not correct, or admin access has not been set up yet (config/admin in Firestore).', 403);
+    throw e;
+  }
+}
+export async function adminActive(store) {
+  try { if (!(await store.getDoc(adminPath(store)))) return false; await store.query('sessions', { orderBy: 'createdAt', desc: true, limit: 1 }); return true; }
+  catch { return false; }
+}
+export async function adminSignOut(store) { try { await store.deleteDoc(adminPath(store)); } catch {} }
+export async function adminSessions(store, { limit = 50, after } = {}) {
+  const rows = await store.query('sessions', { orderBy: 'createdAt', desc: true, limit, after });
+  return rows.map(d => ({ code: d.id, ...d.data }));
+}
+// The assessment record of one session: full state + finished rounds (2 + rounds reads).
+export async function adminRecords(store, code) {
+  const p = paths(code);
+  const [st, rounds] = await Promise.all([store.getDoc(p.state), store.getCollection(p.rounds)]);
+  if (!st) return null;
+  const s = JSON.parse(st.data);
+  return L.exportData(s, rounds.map(d => JSON.parse(d.data.data)).sort((a, b) => a.index - b.index));
+}
+// Every document the session has in the database, for the "raw data" view and full backups.
+export async function adminRaw(store, code) {
+  const p = paths(code);
+  const [session, pin, state, rounds, staff, people, views] = await Promise.all([
+    store.getDoc(p.session), store.getDoc(p.pin), store.getDoc(p.state),
+    store.getCollection(p.rounds), store.getCollection(p.staff), store.getCollection(p.people), store.getCollection(p.views)
+  ]);
+  const parse = d => { try { return d && typeof d.data === 'string' ? { ...d, data: JSON.parse(d.data) } : d; } catch { return d; } };
+  return {
+    [p.session]: session, [p.pin]: pin, [p.state]: parse(state),
+    ...Object.fromEntries(rounds.map(d => [`${p.rounds}/${d.id}`, parse(d.data)])),
+    ...Object.fromEntries(staff.map(d => [`${p.staff}/${d.id}`, d.data])),
+    ...Object.fromEntries(people.map(d => [`${p.people}/${d.id}`, d.data])),
+    ...Object.fromEntries(views.map(d => [`${p.views}/${d.id}`, parse(d.data)]))
+  };
+}

@@ -1,5 +1,6 @@
 /* ClassroomSim 3 front end. Two interfaces: evaluators (run and assess) and participants (a hand of cards). */
 import * as E from './engine.js';
+import * as L from './logic.js';
 import { svg as qrSvgOf } from './qr.js';
 
 export function startApp({ makeStore, publicUrl }) {
@@ -64,11 +65,11 @@ function joinUrl(kind = 'join') { return `${baseUrl()}?${kind}=${S.code}`; }
 function qrSvg() { try { return qrSvgOf(joinUrl()); } catch (e) { console.error('QR code could not be drawn:', e); return '<p class="small muted" style="padding:1rem">QR not available. Share the link instead.</p>'; } }
 
 // ---------------- connecting ----------------
+let storePromise = null; // one store per page, even when several things ask for it at once
 async function getStore() {
   if (store) return store;
-  store = await makeStore();
-  await store.init();
-  return store;
+  storePromise ||= (async () => { const st = await makeStore(); await st.init(); store = st; return st; })().catch(e => { storePromise = null; throw e; });
+  return storePromise;
 }
 function attach() {
   if (sess) sess.stop();
@@ -308,12 +309,12 @@ function scenarioCard(sc, { id, flipped, deal, staticCard, roundIndex, who, acti
     foot: [`Round ${roundIndex ?? '–'} · ${PHASES[sc.phase] || sc.phase || ''}`, sc.difficulty === 'custom' ? 'Custom' : sc.id]
   });
 }
-function roleCard(view, { flipped, deal }) {
+function roleCard(view, { flipped, deal, id, action }) {
   const r = view.round, t = view.me.type;
   if (t === 'lead' || t === 'support') {
     const lead = t === 'lead';
     return cardHTML({
-      id: 'role-' + r.index, kind: 'trainer', color: t, sym: lead ? '★' : '◇', k: 'Trainer card', n: lead ? 'Lead Trainer' : 'Support Trainer', flipped, deal,
+      id: id || 'role-' + r.index, action, kind: 'trainer', color: t, sym: lead ? '★' : '◇', k: 'Trainer card', n: lead ? 'Lead Trainer' : 'Support Trainer', flipped, deal,
       back: { kind: 'Trainer card', who: view.me.name }, backMark: lead ? '★' : '◇',
       body: `<p class="do">${lead ? 'Teach your planned lesson and respond to what happens in the class. You are being assessed.' : 'Help learners and back up the Lead Trainer. You get feedback, not a score.'}</p>
         ${r.partnerName ? `<div class="csec"><div class="eyebrow">${lead ? 'Your Support Trainer' : 'Your Lead Trainer'}</div><p><b>${esc(r.partnerName)}</b></p></div>` : ''}
@@ -323,7 +324,7 @@ function roleCard(view, { flipped, deal }) {
   }
   const c = r.myRole, info = ROLE[c] || ROLE.normal;
   return cardHTML({
-    id: 'role-' + r.index, kind: 'role', color: c, sym: info.sym, k: `Role card · ${c === 'normal' ? 'regular' : c}`, n: info.name, flipped, deal,
+    id: id || 'role-' + r.index, action, kind: 'role', color: c, sym: info.sym, k: `Role card · ${c === 'normal' ? 'regular' : c}`, n: info.name, flipped, deal,
     back: { kind: 'Role card', who: view.me.name }, backMark: '?',
     body: `<p class="do">${esc(info.desc)}</p>
       <div class="csec"><div class="eyebrow">How to play</div><p>${c === 'normal' ? 'Join in normally for the whole round.' : 'Join in normally. When a Scenario card arrives, flip it and act it out quietly.'}</p></div>
@@ -341,8 +342,9 @@ function render(force = false) {
   if (!force && (fieldFocused() || modalRoot.firstChild)) { pendingRender = true; paintLive(); return; }
   pendingRender = false;
   const y = window.scrollY;
-  document.body.classList.toggle('no-nav', !isStaff());
+  document.body.classList.toggle('no-nav', !isStaff() || admin.on);
   if (bootError) app.innerHTML = renderBootError();
+  else if (admin.on) app.innerHTML = renderAdmin();
   else if (!identity) app.innerHTML = renderLanding();
   else if (!S) app.innerHTML = `<div class="boot"><div><img src="${FAV}" width="60" height="60" alt="" style="border:2px solid #162334;border-radius:12px"><p>Connecting to session <b>${esc(identity.code)}</b>…</p><button class="btn" data-a="leave-now">Cancel</button></div></div>`;
   else if (S.kind === 'participant') app.innerHTML = renderParticipant();
@@ -428,7 +430,7 @@ function renderLanding() {
         <div class="field"><label class="lbl" for="e-code">Session code</label><input id="e-code" name="code" class="code-input" required minlength="6" maxlength="6" value="${esc(staffCode || '')}" placeholder="ABC234" autocapitalize="characters" spellcheck="false"></div>
         <div class="field"><label class="lbl" for="e-pin">Evaluator code</label><input id="e-pin" name="pin" class="code-input evcode" required minlength="10" maxlength="14" placeholder="XXXX-XXXX-XX" value="${esc(evalKey)}" autocapitalize="characters" spellcheck="false" autocomplete="off"><p class="hint">10 letters and numbers from the evaluator who started the session. Dashes and capitals don't matter.</p></div>
         <button class="btn btn-primary btn-lg btn-block" type="submit">Join as evaluator</button></form>`}
-      <button class="back" data-a="land" data-to="home">‹ Back</button>`;
+      <div class="row" style="justify-content:space-between"><button class="back" data-a="land" data-to="home">‹ Back</button><button class="back" data-a="adminEnter">Course admin ›</button></div>`;
   }
   return `<div class="landing"><div class="land-in"><div class="brand"><img src="${FAV}" alt="">ClassroomSim</div>${body}</div></div>`;
 }
@@ -496,6 +498,7 @@ function renderStaff() {
     <div class="t"><b>${esc(S.lessonTopic)}</b><span>Code ${esc(S.code)} · Round ${r.index} · <span class="st ${r.status}">${statusText(r.status)}</span></span></div>
     ${activeCount ? `<button class="pill" data-a="nav" data-v="observe">${activeCount} live</button>` : ''}
     <div class="scoreboard" data-timer>${mmss(r.remainingMs)}</div>
+    <button class="iconbtn" data-a="deck" aria-label="Card deck: see every card" title="Card deck">🂠</button>
     <button class="iconbtn qrbtn" data-a="showQR" aria-label="Show the join QR code">QR</button>
     <button class="iconbtn" data-a="settings" aria-label="Settings">⚙</button></header>`;
   const page = { setup: viewSetup, run: viewRun, observe: viewObserve, review: viewReview, records: viewRecords }[view]();
@@ -802,6 +805,7 @@ function viewRecords() {
       <section class="card"><h3>Printable report</h3><p class="small muted">Scores, card ratings, all notes and written feedback for every round. Use “Save as PDF” in the print window.</p><button class="btn btn-primary" data-a="report">🖨 Print / Save as PDF</button></section>
       <section class="card"><h3>Download data</h3><p class="small muted">Spreadsheet (CSV) of all events, notes and ratings, or a full JSON backup.</p><div class="row"><button class="btn" data-a="export" data-v="csv">⤓ CSV</button><button class="btn" data-a="export" data-v="json">⤓ JSON</button></div></section>
     </div>
+    <section class="card"><h3>Card deck and course admin</h3><p class="small muted">See every role, trainer and scenario card. Course admins can also open every session and every evaluator's records (needs the admin passcode).</p><div class="row"><button class="btn" data-a="deck">🂠 Card deck</button><button class="btn" data-a="adminEnter">🗂 Course admin view</button></div></section>
     <p class="note small">The 6 rubric areas and 1–4 scale are a draft. Map them to the course's approved assessment criteria before formal use.</p>
   </div>`;
 }
@@ -826,6 +830,182 @@ async function download(type) {
     a.href = u; a.download = `ClassroomSim_${S.code}.${type}`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 5000);
   } catch (e) { toast(e.message, true); }
+}
+
+// ---------- card deck (every role, trainer and scenario card) ----------
+let deckType = 'all', deckColour = 'all', deckBacks = false;
+const DECK_COLOURS = ['red', 'yellow', 'blue', 'black', 'green'];
+function deckCards() {
+  const sample = { round: { index: 1, partnerName: '' }, me: { name: 'Participant name' } };
+  const out = [];
+  for (const c of [...DECK_COLOURS, 'normal']) out.push({ type: 'role', colour: c, html: o => roleCard({ ...sample, round: { ...sample.round, myRole: c }, me: { ...sample.me, type: 'student' } }, o) });
+  for (const t of ['lead', 'support']) out.push({ type: 'trainer', colour: 'trainer', html: o => roleCard({ ...sample, round: { ...sample.round, partnerName: t === 'lead' ? 'Support Trainer name' : 'Lead Trainer name' }, me: { ...sample.me, type: t } }, o) });
+  const list = S?.scenarios || L.SCENARIOS;
+  for (const sc of list) out.push({ type: 'scenario', colour: sc.color, html: o => scenarioCard(sc, { ...o, roundIndex: 1, who: 'For your eyes only' }) });
+  return out;
+}
+function deckBody() {
+  const all = deckCards();
+  const shown = all.filter(x => (deckType === 'all' || x.type === deckType) && (deckColour === 'all' || x.colour === deckColour || (deckColour === 'normal' && x.colour === 'normal')));
+  const count = t => all.filter(x => x.type === t).length;
+  return `<div class="deck-filters">
+      ${seg('decktype', [['all', `All ${all.length}`], ['role', `Role ${count('role')}`], ['trainer', `Trainer ${count('trainer')}`], ['scenario', `Scenario ${count('scenario')}`]], deckType, '', true)}
+      ${seg('deckcolour', [['all', 'Any colour'], ...DECK_COLOURS.map(c => [c, c[0].toUpperCase() + c.slice(1)])], deckColour, '', true)}
+      ${seg('deckside', [['front', 'Fronts'], ['back', 'Backs']], deckBacks ? 'back' : 'front', '', true)}
+    </div>
+    <p class="hint">Tap any card to flip it. Card backs are the same for every colour on purpose, so nobody can tell someone's role from the back of their phone.</p>
+    <div class="deckgrid">${shown.map((x, i) => x.html({ id: 'lib-' + i, flipped: !deckBacks, action: 'flip-lib' })).join('') || '<div class="empty">No cards match.</div>'}</div>`;
+}
+function deckSheet() {
+  modal(`<div class="row" style="align-items:center"><h2 class="grow" style="margin:0">Card deck</h2><button class="btn btn-sm" data-a="close">Close</button></div>
+    <p class="small muted" style="margin:.3rem 0 .8rem">Every card participants can be dealt${S?.scenarios?.some(x => x.difficulty === 'custom') ? ', including this session’s custom cards' : ''}. Only evaluators can open this.</p>
+    <div id="deck-body">${deckBody()}</div>`);
+  modalRoot.querySelector('.sheet')?.classList.add('wide');
+}
+function refreshDeck() { const b = $('#deck-body'); if (b) b.innerHTML = deckBody(); }
+
+// ---------- course admin (read-only, every session) ----------
+const admin = { on: !!load('cs_admin', false), tab: 'sessions', list: null, more: false, loading: false, sel: null, data: null, table: null, tableProgress: '', err: '' };
+const DECISION = { pending: 'Not decided', competent: 'Competent', 'not-yet-competent': 'Not yet competent' };
+const SCORE_WORD = { 'not-observed': 'Not seen', 1: '1 Emerging', 2: '2 Developing', 3: '3 Competent', 4: '4 Proficient' };
+const when = t => t ? new Date(t).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+const decisionChip = d => chip(DECISION[d] || d || '—', d === 'competent' ? 'good' : d === 'not-yet-competent' ? 'bad' : '');
+function saveFile(name, text, type) {
+  const blob = new Blob([text], { type }), u = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 5000);
+}
+async function adminEnter() {
+  try {
+    const st = await getStore();
+    if (await E.adminActive(st)) return openAdmin();
+    modal(`<h2>Course admin</h2><p class="small muted">Read-only view of every session, every evaluator's records and everything stored in the database. Enter the admin passcode set by whoever manages the Firebase project.</p>
+      <form id="admin-form" autocomplete="off"><div class="field"><label class="lbl" for="a-pass">Admin passcode</label><input id="a-pass" name="pass" type="password" required minlength="8" maxlength="128" autocomplete="off" autofocus></div>
+      <div class="row"><button type="button" class="btn grow" data-a="close">Cancel</button><button class="btn btn-primary grow" type="submit">Open admin view</button></div></form>`, { center: true });
+  } catch (e) { toast(e.message, true); }
+}
+function openAdmin() { admin.on = true; save('cs_admin', true); admin.sel = null; admin.data = null; closeModal(); render(true); window.scrollTo(0, 0); loadAdminList(true); }
+function exitAdmin() { admin.on = false; save('cs_admin', false); render(true); window.scrollTo(0, 0); }
+async function loadAdminList(reset) {
+  if (admin.loading) return;
+  admin.loading = true; admin.err = ''; if (reset) { admin.list = null; admin.table = null; }
+  try {
+    const after = !reset && admin.list?.length ? admin.list[admin.list.length - 1].createdAt : undefined;
+    const rows = await E.adminSessions(await getStore(), { limit: 50, after });
+    admin.list = [...(reset ? [] : admin.list || []), ...rows]; admin.more = rows.length === 50;
+  } catch (e) {
+    if (/permission/i.test(e.message || '')) { admin.on = false; save('cs_admin', false); toast('Admin access has ended on this device (the admin passcode was changed).', true); }
+    else admin.err = e.message;
+  }
+  admin.loading = false; render(true);
+}
+async function openAdminSession(code) {
+  admin.sel = code; admin.data = null; render(true); window.scrollTo(0, 0);
+  try {
+    const raw = await E.adminRaw(await getStore(), code), P = E.paths(code);
+    const state = raw[P.state]?.data;
+    const rounds = Object.entries(raw).filter(([k]) => k.startsWith(P.rounds + '/')).map(([, v]) => v.data).sort((a, b) => a.index - b.index);
+    admin.data = { raw, rec: state ? L.exportData(state, rounds) : null, pub: raw[P.session], pin: raw[P.pin]?.pin, staff: Object.entries(raw).filter(([k]) => k.startsWith(P.staff + '/')).map(([k, v]) => ({ uid: k.split('/').pop(), ...v })), code };
+  } catch (e) { admin.data = { error: e.message }; }
+  if (admin.sel === code) render(true);
+}
+async function loadAdminTable() {
+  if (!admin.list?.length) return;
+  admin.table = []; const st = await getStore(); let n = 0;
+  for (let i = 0; i < admin.list.length; i += 4) {
+    const chunk = admin.list.slice(i, i + 4);
+    const recs = await Promise.all(chunk.map(x => E.adminRecords(st, x.code).catch(() => null)));
+    recs.forEach((rec, j) => {
+      if (!rec) return;
+      for (const r of rec.rounds) {
+        const num = Object.values(r.scores || {}).map(Number).filter(v => v >= 1);
+        admin.table.push({ code: chunk[j].code, date: rec.session.createdAt, cohort: rec.session.cohort, topic: rec.session.lessonTopic, round: r.index, lead: r.leadName || rec.participants.find(p => p.id === r.leadId)?.name || '', support: r.supportName || rec.participants.find(p => p.id === r.supportId)?.name || '', decision: r.decision, by: r.savedBy || '', at: r.savedAt, notes: r.observations.length, rated: r.incidents.filter(x => x.rating && (x.rating.noticed || x.rating.response)).length, avg: num.length ? (num.reduce((a, b) => a + b, 0) / num.length).toFixed(1) : '' });
+      }
+    });
+    n += chunk.length; admin.tableProgress = `${n} of ${admin.list.length}`; render(true);
+  }
+  admin.tableProgress = ''; render(true);
+}
+function adminTableCsv() {
+  const cell = v => '"' + String(v ?? '').replace(/^[=+@\-\t\r]/, "'$&").replaceAll('"', '""') + '"';
+  const rows = [['date', 'session', 'cohort', 'topic', 'round', 'lead_trainer', 'support_trainer', 'outcome', 'assessed_by', 'assessed_at', 'notes', 'cards_rated', 'average_score']];
+  for (const x of admin.table) rows.push([new Date(x.date).toISOString(), x.code, x.cohort, x.topic, x.round, x.lead, x.support, DECISION[x.decision] || x.decision, x.by, x.at ? new Date(x.at).toISOString() : '', x.notes, x.rated, x.avg]);
+  return rows.map(r => r.map(cell).join(',')).join('\n');
+}
+
+function renderAdmin() {
+  const top = `<header class="topbar admin-top"><img src="${FAV}" alt="" width="34" height="34" style="border-radius:8px;border:2px solid #4a5a70">
+    <div class="t"><b>Course admin</b><span>Read-only · every session in this database</span></div>
+    <button class="iconbtn" data-a="deck" aria-label="Card deck" title="Card deck">🂠</button>
+    <button class="btn btn-sm" data-a="adminExit">Close</button></header>`;
+  return `<div class="admin">${top}<main class="main admin-main">${admin.sel ? renderAdminSession() : renderAdminHome()}</main></div>`;
+}
+function renderAdminHome() {
+  const tabs = `<div class="tabs3">${[['sessions', 'Sessions'], ['assess', 'All assessments'], ['stored', "What's stored"]].map(([k, l]) => `<button class="${admin.tab === k ? 'on' : ''}" data-a="adminTab" data-v="${k}">${l}</button>`).join('')}</div>`;
+  let body = '';
+  if (admin.tab === 'sessions') {
+    body = admin.err ? `<div class="note">${esc(admin.err)}</div>` : !admin.list ? '<div class="empty">Loading sessions…</div>' : !admin.list.length ? '<div class="empty">No sessions yet.</div>'
+      : `<input id="admin-q" class="search" type="search" placeholder="Search by code, cohort or topic" aria-label="Search sessions">
+        <section class="card">${admin.list.map(x => { const open = Date.now() < (x.participantsUntil || 0); return `<div class="sess-row" data-search="${esc((x.code + ' ' + x.cohort + ' ' + x.lessonTopic).toLowerCase())}"><div class="grow"><b>${esc(x.lessonTopic || 'Session')}</b><div class="small muted"><span class="codechip">${esc(x.code)}</span> ${esc(x.cohort || '')} · ${when(x.createdAt)} · Round ${x.round?.index || 1} ${chip(open ? 'Open to participants' : 'Closed', open ? 'good' : '')}</div></div><button class="btn btn-sm btn-primary" data-a="adminOpenSession" data-v="${esc(x.code)}">Open</button></div>`; }).join('')}</section>
+        <div class="row" style="margin-top:.8rem">${admin.more ? `<button class="btn" data-a="adminMore" ${admin.loading ? 'disabled' : ''}>Load older sessions</button>` : `<span class="small muted">${admin.list.length} session${admin.list.length === 1 ? '' : 's'}, newest first.</span>`}</div>`;
+  } else if (admin.tab === 'assess') {
+    body = !admin.table ? `<section class="card"><h3>Every assessment, in one table</h3><p class="small muted">Loads the records of the ${admin.list?.length || 0} sessions listed under Sessions: every round, its Lead and Support Trainer, the outcome and which evaluator saved it.</p><button class="btn btn-primary" data-a="adminTable" ${admin.list?.length ? '' : 'disabled'}>Load all assessments</button></section>`
+      : `<div class="row" style="margin-bottom:.8rem"><span class="grow small muted">${admin.tableProgress ? 'Loading ' + admin.tableProgress + ' sessions…' : admin.table.length + ' rounds'}</span><button class="btn btn-sm" data-a="adminTableCsv" ${admin.tableProgress ? 'disabled' : ''}>⤓ CSV</button></div>
+        <section class="card"><div class="tablewrap"><table class="tbl"><thead><tr><th>Date</th><th>Session</th><th>Round</th><th>Lead Trainer</th><th>Support</th><th>Outcome</th><th>Assessed by</th><th>Notes</th><th>Avg</th></tr></thead><tbody>
+        ${admin.table.map(x => `<tr><td>${new Date(x.date).toLocaleDateString()}</td><td><button class="linkbtn" data-a="adminOpenSession" data-v="${esc(x.code)}">${esc(x.code)}</button><div class="xs muted">${esc(x.cohort)}</div></td><td>${x.round}</td><td>${esc(x.lead || '—')}</td><td>${esc(x.support || '—')}</td><td>${decisionChip(x.decision)}</td><td>${esc(x.by || '—')}${x.at ? `<div class="xs muted">${when(x.at)}</div>` : ''}</td><td>${x.notes}</td><td>${x.avg || '–'}</td></tr>`).join('') || '<tr><td colspan="9">No rounds yet.</td></tr>'}
+        </tbody></table></div></section>`;
+  } else {
+    const row = (path, what, who) => `<tr><td class="mono small">${path}</td><td>${what}</td><td class="small">${who}</td></tr>`;
+    body = `<section class="card"><h3>Everything ClassroomSim keeps in Firestore</h3><div class="tablewrap"><table class="tbl"><thead><tr><th>Where</th><th>What is in it</th><th>Who can read it</th></tr></thead><tbody>
+      ${row('sessions/{code}', 'Cohort, lesson topic, who started it, round clock, participant closing time', 'Anyone with the code (needed to join)')}
+      ${row('…/engine/state', 'The whole session: participants, evaluators, role cards, scenario cards, notes, ratings, scores, feedback, change history, event log', 'Evaluators of that session, admin')}
+      ${row('…/rounds/{n}', 'Each finished round, complete', 'Evaluators of that session, admin')}
+      ${row('…/staff/{id}', 'Evaluator name, when they joined and were last seen', 'Evaluators of that session, admin')}
+      ${row('…/secret/pin', 'The evaluator code', 'Evaluators of that session, admin')}
+      ${row('…/people/{id}', 'Participant name, join time, “I read my card” and “a trainer came over” signals', 'That participant, evaluators, admin')}
+      ${row('…/views/{id}', 'Copy of the cards that one participant can see', 'That participant (until closing), evaluators, admin')}
+      ${row('…/proof/{id}', 'The start passcode typed when the session was created', 'Nobody')}
+      ${row('admins/{id}', 'Proof that this device entered the admin passcode', 'That device only')}
+      ${row('config/access, config/admin', 'Start passcode and admin passcode', 'Nobody (Firebase console only)')}
+      </tbody></table></div>
+      <p class="small muted">Nothing is deleted automatically. Phones keep only their own settings (text size, sound) and a list of sessions opened on that device. Participants sign in anonymously: no email or phone number is collected.</p></section>`;
+  }
+  return `<div class="page-title"><h1>All records</h1><p>Every session started by every evaluator. You can look and download, but not change anything.</p></div>${tabs}${body}
+    <div class="divider"></div><button class="back" data-a="adminSignOut">Sign out of admin on this device</button>`;
+}
+function renderAdminSession() {
+  const d = admin.data, back = `<button class="back" data-a="adminBack">‹ All sessions</button>`;
+  if (!d) return `${back}<div class="empty">Loading session ${esc(admin.sel)}…</div>`;
+  if (d.error) return `${back}<div class="note">${esc(d.error)}</div>`;
+  const rec = d.rec, pub = d.pub || {};
+  if (!rec) return `${back}<div class="note">This session has no saved state.</div>`;
+  const pn = id => rec.participants.find(p => p.id === id)?.name || '—';
+  const open = Date.now() < (pub.participantsUntil || 0);
+  const rounds = rec.rounds.slice().reverse().map(r => {
+    const inc = r.incidents.filter(i => i.status !== 'cancelled');
+    return `<details class="card round-card" ${r === rec.rounds[rec.rounds.length - 1] ? 'open' : ''}><summary><b>Round ${r.index}</b> · Lead: ${esc(r.leadName || pn(r.leadId))} · Support: ${esc(r.supportName || pn(r.supportId))} ${decisionChip(r.decision)} <span class="small muted">${r.savedBy ? `assessed by ${esc(r.savedBy)}, ${when(r.savedAt)}` : 'not assessed yet'}</span></summary>
+      <div class="cols cols-2" style="margin-top:.8rem">
+        <div><h4>Scores</h4><table class="tbl">${Object.entries(r.scores || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(SCORE_WORD[v] || v)}</td></tr>`).join('')}</table></div>
+        <div><h4>Lead Trainer feedback</h4><pre class="pre">${esc(r.leadNotes || 'Not written')}</pre><h4>Support Trainer feedback</h4><pre class="pre">${esc(r.supportNotes || 'Not written')}</pre></div>
+      </div>
+      <h4>Scenario cards (${inc.length})</h4>${inc.length ? `<div class="tablewrap"><table class="tbl"><thead><tr><th>Time</th><th>Card</th><th>Learner</th><th>Dealt by</th><th>Noticed</th><th>Response</th><th>Handled by</th><th>Rated by</th></tr></thead><tbody>${inc.map(i => `<tr><td>${mmss(i.triggerElapsedMs)}</td><td><span class="cbar-dot ${esc(i.color)}"></span>${esc(i.title)}</td><td>${esc(pn(i.participantId))}</td><td>${esc(i.sentBy || 'timeline')}</td><td>${esc(i.rating?.noticed || '–')}</td><td>${esc(i.rating?.response || '–')}</td><td>${esc(i.rating?.handledBy || '–')}</td><td>${esc(i.rating?.by || '–')}${i.rating?.note ? `<div class="xs">${esc(i.rating.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<p class="small muted">None dealt.</p>'}
+      <h4>Observation notes (${r.observations.length})</h4>${r.observations.length ? `<div class="tablewrap"><table class="tbl"><thead><tr><th>Time</th><th>By</th><th>For</th><th>Area</th><th>Note</th></tr></thead><tbody>${r.observations.slice().sort((a, b) => (a.elapsed ?? 1e12) - (b.elapsed ?? 1e12)).map(o => { const t = o.tagId && L.QUICK_TAGS.find(x => x.id === o.tagId); return `<tr><td>${o.elapsed == null ? 'after' : mmss(o.elapsed)}</td><td>${esc(o.by)}</td><td>${o.target === 'support' ? 'Support' : 'Lead'}</td><td>${o.polarity === '+' ? '<b class="good-t">+</b> ' : o.polarity === '-' ? '<b class="bad-t">−</b> ' : ''}${esc(o.competency)}</td><td>${o.flagged ? '⚑ ' : ''}${esc([t?.short, o.text].filter(Boolean).join(': '))}</td></tr>`; }).join('')}</tbody></table></div>` : '<p class="small muted">None.</p>'}
+      ${(r.assessLog || []).length ? `<h4>Change history</h4><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${when(x.at)} · <b>${esc(x.by)}</b> saved ${esc(DECISION[x.decision] || x.decision)}</div>`).join('')}</div>` : ''}
+      <details style="margin-top:.6rem"><summary class="small">Event log (${r.events.length})</summary><div class="log">${r.events.map(e => `<div>${mmss(e.elapsed)} · ${esc(e.detail)}</div>`).join('')}</div></details>
+    </details>`;
+  }).join('');
+  const docs = Object.entries(d.raw).filter(([, v]) => v != null);
+  return `${back}
+    <div class="page-title"><h1>${esc(rec.session.lessonTopic)}</h1><p>${esc(rec.session.cohort)} · ${rec.session.mode === 'assessment' ? 'Assessment' : 'Practice'} mode · started by ${esc(rec.session.instructorName)} · ${when(rec.session.createdAt)}</p></div>
+    <div class="row" style="margin-bottom:1rem"><span class="codechip">${esc(d.code)}</span>${chip(open ? 'Open to participants until ' + clockOf(pub.participantsUntil) : 'Closed to participants', open ? 'good' : '')}
+      <button class="btn btn-sm" data-a="adminDl" data-v="json">⤓ Records JSON</button><button class="btn btn-sm" data-a="adminDl" data-v="csv">⤓ CSV</button><button class="btn btn-sm" data-a="adminDl" data-v="raw">⤓ Every document</button></div>
+    <div class="cols cols-2">
+      <section class="card"><h3>Evaluators (${d.staff.length})</h3><table class="tbl">${d.staff.map(x => `<tr><td><b>${esc(x.name)}</b>${x.owner ? ' ' + chip('started it') : ''}</td><td class="small muted">joined ${when(x.joinedAt)}</td></tr>`).join('')}</table>
+        <p class="small muted" style="margin-bottom:0">Evaluator code: <span class="mono" data-reveal="${esc(d.pin || '')}">••••-••••-••</span> <button class="linkbtn" data-a="reveal">show</button></p></section>
+      <section class="card"><h3>Participants (${rec.participants.length})</h3><div class="namegrid">${rec.participants.map(p => `<span>${esc(p.name)}</span>`).join('') || '<span class="muted">None</span>'}</div></section>
+    </div>
+    <h2 style="margin-top:1.4rem">Rounds</h2>${rounds || '<div class="empty">No rounds yet.</div>'}
+    <details class="card" style="margin-top:1rem"><summary><b>Everything stored for this session</b> <span class="small muted">${docs.length} database documents</span></summary>
+      ${docs.map(([k, v]) => `<details class="rawdoc"><summary class="mono small">${esc(k)}</summary><pre class="pre">${esc(JSON.stringify(v, null, 2))}</pre></details>`).join('')}</details>`;
 }
 
 // ---------- settings ----------
@@ -859,6 +1039,22 @@ document.addEventListener('click', async e => {
     case 'land': landing = el.dataset.to; if (landing === 'home') { try { history.replaceState(null, '', location.pathname); } catch {} } render(true); return;
     case 'staffTab': staffTab = el.dataset.v; render(true); return;
     case 'settings': settingsSheet(); return;
+    case 'deck': deckSheet(); return;
+    case 'flip-lib': tapBuzz(); el.classList.toggle('is-flipped'); return;
+    case 'adminEnter': adminEnter(); return;
+    case 'adminExit': exitAdmin(); return;
+    case 'adminSignOut': if (await confirmBox('Sign out of admin on this device? You will need the admin passcode again.', 'Sign out')) { await E.adminSignOut(await getStore()); exitAdmin(); toast('Signed out of admin'); } return;
+    case 'adminTab': admin.tab = el.dataset.v; render(true); return;
+    case 'adminMore': loadAdminList(false); return;
+    case 'adminOpenSession': openAdminSession(el.dataset.v); return;
+    case 'adminBack': admin.sel = null; admin.data = null; render(true); return;
+    case 'adminTable': loadAdminTable(); return;
+    case 'adminTableCsv': saveFile('ClassroomSim_all_assessments.csv', adminTableCsv(), 'text/csv'); return;
+    case 'adminDl': { const d = admin.data; if (!d?.rec) return; const v = el.dataset.v;
+      if (v === 'csv') { const P = E.paths(d.code); const st = d.raw[P.state].data; saveFile(`ClassroomSim_${d.code}.csv`, L.exportCsv(st, d.rec.rounds.filter(r => r.index !== st.round.index)), 'text/csv'); }
+      else saveFile(`ClassroomSim_${d.code}${v === 'raw' ? '_database' : ''}.json`, JSON.stringify(v === 'raw' ? d.raw : d.rec, null, 2), 'application/json');
+      return; }
+    case 'reveal': { const m = document.querySelector('[data-reveal]'); if (m) m.textContent = m.dataset.reveal || '—'; el.remove(); return; }
     case 'test-alert': unlockAlerts(); notify('scenario', 'This is what an alert feels like'); return;
     case 'enable-alerts': unlockAlerts(); notify('role', 'Alerts are on'); render(true); return;
     case 'leave': closeModal(); if (await confirmBox('Leave this session on this device?', 'Leave', true)) { if (identity?.kind === 'staff') forgetSession(identity.code); if (identity?.kind === 'participant') await sess?.leave?.(); signOut(); } return;
@@ -957,6 +1153,9 @@ async function onSeg(btn) {
   const name = btn.dataset.seg, v = btn.dataset.v, ri = Number(btn.dataset.round) || undefined;
   const group = btn.parentElement;
   const markOn = () => group.querySelectorAll('button').forEach(b => { const on = b === btn; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  if (name === 'decktype') { deckType = v; return refreshDeck(); }
+  if (name === 'deckcolour') { deckColour = v; return refreshDeck(); }
+  if (name === 'deckside') { deckBacks = v === 'back'; return refreshDeck(); }
   if (name === 'c-dur') { createDraft.dur = Number(v); markOn(); return; }
   if (name === 'c-mode') { createDraft.mode = v; markOn(); const h = $('#mode-hint'); if (h) h.textContent = MODE_HINT[v]; return; }
   if (name === 'volume') { prefs.volume = v; prefs.sound = v !== 'off'; save('cs_prefs', prefs); markOn(); unlockAlerts(); beep('role'); return; }
@@ -983,6 +1182,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('input', e => {
   const t = e.target;
+  if (t.id === 'admin-q') { const q = t.value.trim().toLowerCase(); document.querySelectorAll('.sess-row[data-search]').forEach(r => { r.hidden = !!q && !r.dataset.search.includes(q); }); return; }
   if (t.dataset.draft) { const r = roundForReview(); if (r) { setDraft(r, { [t.dataset.draft]: t.value }); const sb = document.querySelector('.savebar .grow'); if (sb) sb.textContent = '● Unsaved changes on this device'; } }
 });
 document.addEventListener('change', e => {
@@ -997,6 +1197,7 @@ document.addEventListener('submit', async e => {
     if (f.id === 'join-form') { unlockAlerts(); const st = await getStore(); const code = await E.joinParticipant(st, b.code, b.name); startSession({ code, kind: 'participant' }); return; }
     if (f.id === 'staff-form') { unlockAlerts(); const st = await getStore(); const code = await E.joinStaff(st, b.code, b.name, b.pin); rememberSession({ code }); startSession({ code, kind: 'staff' }); return; }
     if (f.id === 'create-form') { unlockAlerts(); const st = await getStore(); const code = await E.createSession(st, { ...b, durationMinutes: createDraft.dur, mode: createDraft.mode }); rememberSession({ code, topic: b.lessonTopic || 'AI-enabled learning', cohort: b.cohort || 'CET Cohort' }); qrOnOpen = true; startSession({ code, kind: 'staff' }); return; }
+    if (f.id === 'admin-form') { const st = await getStore(); await E.adminSignIn(st, b.pass); openAdmin(); toast('Admin view open'); return; }
     if (f.id === 'rename-form') { await sess.rename(b.name); toast('Name updated. Trying again…'); return; }
     if (f.id === 'plan-form') { await cmd('addPlan', { scenarioId: b.scenarioId, offsetSeconds: Math.round(Number(b.min) * 60) }, 'Added to timeline'); return; }
     if (f.id === 'custom-form') { const send = e.submitter?.dataset.send === '1'; const r = await cmd('addCustomScenario', { ...b, sendNow: send }, send ? 'Saved and dealt' : 'Card saved. Find it under that learner.'); if (r) f.reset(); return; }
@@ -1020,6 +1221,7 @@ document.addEventListener('submit', async e => {
 // ---------------- boot ----------------
 async function boot() {
   render(true);
+  if (admin.on) getStore().then(st => E.adminActive(st)).then(ok => { if (ok) loadAdminList(true); else { admin.on = false; save('cs_admin', false); render(true); } }).catch(() => {});
   if (!identity) { getStore().catch(e => { store = null; bootError = { message: e.message, help: e.help, code: e.code }; render(true); }); return; }
   try { await getStore(); attach(); }
   catch (e) { store = null; bootError = { message: e.message || String(e), help: e.help, code: e.code }; render(true); }

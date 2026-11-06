@@ -18,10 +18,19 @@ export function allowed(op, path, uid, before, after, get, getAfter) {
   if (!uid) return false;
   const seg = path.split('/');
   if (seg[0] === 'config') return false; // course settings: never readable or writable from the app
+  // Course admin: holds a proof doc whose key matches config/admin.code (set in the Firebase console).
+  const isAdmin = () => { const a = get(`admins/${uid}`), c = get('config/admin'); return !!(a && c && c.code && a.key === c.code); };
+  if (seg[0] === 'admins') {
+    if (seg.length !== 2 || seg[1] !== uid || op === 'list') return false;
+    if (op === 'read' || op === 'delete') return true;
+    const c = get('config/admin');
+    return !!(c && c.code) && keysOnly(after, ['key', 'at']) && after.key === c.code;
+  }
   if (seg[0] !== 'sessions') return false;
   const code = seg[1];
   const isStaff = () => !!get(`sessions/${code}/staff/${uid}`);
   if (seg.length === 2) {
+    if (op === 'list') return isAdmin(); // only the course admin can list every session
     if (op === 'read') return true;
     if (op === 'create') {
       const cfg = get('config/access');
@@ -32,7 +41,10 @@ export function allowed(op, path, uid, before, after, get, getAfter) {
     return before.ownerUid === uid;
   }
   if (seg.length !== 4) return false;
+  if (op === 'list') op = 'read'; // inside a session, listing follows the read rules
   const sub = seg[2], id = seg[3];
+  // The course admin can read (never change) everything in every session, except the start-passcode proof.
+  if (op === 'read' && sub !== 'proof' && isAdmin()) return true;
   const ownerAfter = () => getAfter(`sessions/${code}`)?.ownerUid === uid;
   const isOwner = () => get(`sessions/${code}`)?.ownerUid === uid;
   const smallMap = v => v == null || (typeof v === 'object' && Object.keys(v).length <= 60);
@@ -79,9 +91,10 @@ export class MemoryHub {
   list(uid, colPath) {
     const out = [];
     for (const [p, d] of this.docs) if (p.startsWith(colPath + '/') && !p.slice(colPath.length + 1).includes('/')) {
-      if (!this._can('read', p, uid, d.data, null)) throw new PermissionError('Missing or insufficient permissions: list ' + colPath);
+      if (!this._can('list', p, uid, d.data, null)) throw new PermissionError('Missing or insufficient permissions: list ' + colPath);
       out.push({ id: p.slice(colPath.length + 1), data: clone(d.data) });
     }
+    if (!out.length && colPath === 'sessions' && this.rules && !allowed('list', 'sessions/_', uid, null, null, this._get, this._get)) throw new PermissionError('Missing or insufficient permissions: list ' + colPath);
     this.reads += out.length || 1;
     return out;
   }
@@ -139,6 +152,13 @@ export class MemoryStore {
   async init() { return this; }
   async getDoc(path) { return (await this.hub.read(this.uid, path)).data; }
   async getCollection(path) { return this.hub.list(this.uid, path); }
+  // Simple ordered query: { orderBy, desc, limit, after } (after = the orderBy value of the last row seen)
+  async query(path, { orderBy, desc = false, limit = 50, after } = {}) {
+    let rows = await this.hub.list(this.uid, path);
+    if (orderBy) rows.sort((a, b) => ((a.data[orderBy] ?? 0) - (b.data[orderBy] ?? 0)) * (desc ? -1 : 1));
+    if (orderBy && after != null) rows = rows.filter(r => desc ? r.data[orderBy] < after : r.data[orderBy] > after);
+    return rows.slice(0, limit);
+  }
   async _commit(writes) { const r = await this.hub.commit(this.uid, writes); if (r.conflict) throw new Error('conflict'); }
   setDoc(path, data, opts = {}) { return this._commit([{ op: 'set', path, data, merge: !!opts.merge }]); }
   updateDoc(path, data) { return this._commit([{ op: 'update', path, data }]); }

@@ -1,4 +1,4 @@
-# ClassroomSim 3.0
+# ClassroomSim 3.5
 
 Classroom role-play practice and Lead Trainer assessment for the CET *Leading and Assessing AI-Enabled Learning Experiences* course.
 
@@ -9,6 +9,10 @@ There are two interfaces:
 It is a web app **hosted on GitHub Pages**, built and published by GitHub itself. Nothing runs on your computer, and nothing is installed on phones: everyone just opens the link (or scans the QR code) in their normal web browser. **Firebase** (free Spark plan, no credit card) is used only as the real-time database, so cards reach phones instantly.
 
 ---
+
+## What's new in 3.5
+- **Card deck for evaluators.** Tap 🂠 in the top bar (or Records → Card deck) to see every role, trainer and scenario card, filter by type and colour, and flip between fronts and backs.
+- **Course admin view.** One read-only screen for every session in the database: all evaluators' scores, notes, card ratings, feedback, change history, plus a table of every assessment and a raw view of every stored document. Protected by an admin passcode (setup step 5c).
 
 ## What's new in 3.4
 
@@ -77,6 +81,7 @@ All earlier features are kept: guided setup with "What to do now", automatic or 
 4. **Build → Authentication → Get started → Sign-in method → Anonymous → Enable → Save**.
 5. **Authentication → Settings → Authorized domains → Add domain** → `<your-github-username>.github.io`.
 5b. **Recommended: set a start passcode** so only your evaluators can start sessions. In **Firestore Database → Data**: **Start collection** `config` → Document ID `access` → add a field `startCode` (string) = a passcode you choose, e.g. `FabLab-Eval-2026`. Give it only to your evaluators. To change it later, edit that field. To turn it off, delete the `access` document.
+5c. **Optional: turn on the course admin view.** In **Firestore Database → Data**, inside the `config` collection add a document `admin` with a field `code` (string) = a long admin passcode, at least 16 characters and different from the start passcode (e.g. four random words plus a number). Then anyone with that passcode can open **Evaluator → Course admin** (or **Records → Course admin view**) and read every session. It is read-only: admins cannot change any record. Changing the `code` field signs every admin out on every device at once. Delete the `admin` document to switch the feature off.
 6. **Project settings** (gear icon) → **Your apps** → click the web icon `</>` → give it a nickname → **Register app**. Keep the `firebaseConfig` box open: you need it in Part B.
 
 ### Part B: GitHub (the website)
@@ -173,6 +178,20 @@ To change the default of 60 minutes, edit `PARTICIPANT_MINUTES` in `src/logic.js
     - after turning on alerts, iPhone users see short tips and a **Test my alert** button.
   - Everyone taps **Turn on alerts** once and keeps the page open. A locked phone can't receive anything from a website; the alert plays as soon as it is unlocked.
 - The tick is a device feature I could not test here. Try it on an iPhone (Settings → Sounds & Haptics → System Haptics must be on).
+
+## Course admin view
+- **What admins see:** every session (newest first, searchable), each session's evaluators, participants, rounds, scores, Lead and Support feedback, scenario card ratings and who rated them, observation notes and who wrote them, the change history of every saved result, the event log, the evaluator code, and every raw database document. The **All assessments** tab puts every round from every session in one table with a CSV download.
+- **How it is protected:** the passcode lives in `config/admin`, which the app can never read. Signing in writes a proof document (`admins/{device id}`) that the database rules only accept if it matches. On every read the rules check the proof still matches, so changing the passcode cuts everyone off immediately. Admins have no write access to any session.
+- **Cost:** opening the list reads about 50 documents. Opening one session reads every document in it (about 2 per participant). Loading **All assessments** reads about 3 documents per session. Well within the free 50,000 reads a day.
+
+## The cards
+| Type | Cards | Notes |
+|---|---|---|
+| Role cards (6) | Red: Disengaged learner · Yellow: Over-keen learner · Blue: Struggling learner · Black: Disruptive learner · Green: Engaged learner · Grey: Regular learner | Faces in `src/app.js` (`ROLE`), colours in `public/styles.css` (`--r-*`) |
+| Trainer cards (2) | Lead Trainer · Support Trainer | |
+| Scenario cards (20) | 4 per colour, IDs R01–R04, Y01–Y04, B01–B04, K01–K04 (black), G01–G04 | Text in `src/scenarios.js`; evaluators can add custom ones per session |
+
+There are 3 card backs (role, scenario, trainer). Backs are the same for every colour on purpose: if they differed, people could tell each other's secret role from across the room.
 
 ## Rules from bugs we fixed
 - **Inserting code into a page with `String.replace`:** always pass a function (`.replace(x, () => code)`). A plain string treats `$&`, `$1` etc. inside the code as patterns and silently corrupts it. (This broke the QR code in the demo build.)

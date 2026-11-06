@@ -36,6 +36,8 @@ button.ctl:focus-visible, select:focus-visible, .tabs button:focus-visible { out
 .guide li { counter-increment: s; background: var(--surface); border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px 11px 44px; position: relative; font-size: .9rem; color: var(--muted); min-width: 0; }
 .guide li::before { content: counter(s); position: absolute; left: 11px; top: 10px; width: 24px; height: 24px; border-radius: 7px; background: var(--sun); color: var(--sun-ink); border: 2px solid var(--ink); font: 900 .78rem/20px var(--display); text-align: center; }
 .guide b { color: var(--ink); }
+.guide li:last-child { grid-column: 1 / -1; background: var(--sun); color: var(--sun-ink); border-color: var(--ink); }
+.guide li:last-child b { color: var(--sun-ink); }
 .tabs { display: none; gap: 6px; margin-top: 12px; }
 .tabs button { flex: 1; min-height: 46px; border: 2px solid var(--ink); background: var(--surface); color: var(--ink); border-radius: 10px; font: 800 .92rem var(--display); position: relative; cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
@@ -77,7 +79,7 @@ footer p { max-width: 92ch; margin: 4px 0; }
 
 <header class="top"><div class="wrap">
   <div class="titlebar">
-    <div><h1>ClassroomSim <span>3.4 demo</span></h1>
+    <div><h1>ClassroomSim <span>3.5 demo</span></h1>
       <p class="lede">The real app on three screens: an evaluator's laptop, a second evaluator's phone and a participant's phone, all connected. 8 sample participants and a second evaluator have joined. Nothing leaves this page, and Reset starts again.</p></div>
     <div class="controls">
       <span class="meta">Code <b id="m-code">······</b> · Evaluator code <b id="m-pin">····-····-··</b></span>
@@ -91,6 +93,7 @@ footer p { max-width: 92ch; margin: 4px 0; }
     <li><b>Participant phone:</b> the role card arrives face down. Tap it to flip it open.</li>
     <li><b>Either evaluator screen, Run:</b> pick a learner, pick a card, Deal. That phone shakes and the card is dealt face down.</li>
     <li><b>Evaluator phone, Observe:</b> tap ⚑ Flag, then what it was. End the round, then Review and Draft from notes.</li>
+    <li><b>New:</b> tap <b>🂠</b> in the top bar to browse every card. In <b>Records → Course admin view</b>, enter <b>DEMO-ADMIN-2026</b> to see every session's records, including yesterday's assessed class.</li>
   </ol>
   <div class="tabs" role="tablist" aria-label="Choose a screen">
     <button type="button" role="tab" data-v="ins" aria-selected="true">Evaluator laptop</button>
