@@ -76,7 +76,10 @@ function attach() {
   const onError = e => {
     console.error(e);
     if (e && (e.status === 404 || /no longer exists/i.test(e.message))) { toast(e.message, true); signOut(true); return; }
-    if (e && (e.code === 'permission-denied' || /permission/i.test(e.message || ''))) { toast('This device is no longer part of that session.', true); signOut(true); return; }
+    if (e && (e.code === 'permission-denied' || /permission/i.test(e.message || ''))) {
+      if (identity?.kind === 'participant' && closesAt && Date.now() >= closesAt - 5000) { autoLeave(); return; }
+      toast('This device is no longer part of that session.', true); signOut(true); return;
+    }
     setOnline(false);
   };
   if (identity.kind === 'staff') {
@@ -85,12 +88,26 @@ function attach() {
     sess = new E.ParticipantSession(store, identity.code, { onView: onParticipantView, onError }).start();
   }
 }
+// Participants leave automatically when the session's time limit is reached.
+// (The database rules also lock them out at that time, so this cannot be bypassed.)
+let closesAt = null, warnedClosing = false;
+function autoLeave() {
+  if (identity?.kind !== 'participant') return;
+  const topic = S?.lessonTopic || '';
+  stopCalling(); document.getElementById('table-felt')?.remove();
+  sess?.leave?.(); sess = null;
+  identity = null; S = null; closesAt = null; warnedClosing = false; save('cs_identity', null); releaseWake();
+  endedTopic = topic; landing = 'ended'; render(true);
+}
+let endedTopic = '';
 function onParticipantView(v, person, pub) {
   setOnline(true);
   if (person) hadPerson = true;
   if (!v && person === null && hadPerson) { toast('You were removed from the session.', true); signOut(true); return; }
   const prev = S;
   const blank = { status: 'lobby', elapsedMs: 0, remainingMs: 0, durationMinutes: 0, incidents: [] };
+  closesAt = pub?.participantsUntil || null;
+  if (closesAt && Date.now() >= closesAt) { autoLeave(); return; }
   if (!v) { S = { kind: 'participant', waiting: true, round: blank, me: { name: person?.name || '' }, code: identity.code, lessonTopic: pub?.lessonTopic }; render(); return; }
   if (v.pending) { S = { ...v, kind: 'participant', round: blank }; render(); return; }
   // The clock lives in the shared session doc; the cards live in this person's private doc.
@@ -337,6 +354,18 @@ function render(force = false) {
 document.addEventListener('focusout', () => setTimeout(() => { if (pendingRender && !fieldFocused() && !modalRoot.firstChild) render(true); }, 120));
 function paintLive() {
   const qj = document.getElementById('qr-joined'); if (qj && S?.participants) qj.textContent = S.participants.length;
+  // participant time limit
+  if (S?.kind === 'participant' && closesAt) {
+    const left = closesAt - Date.now();
+    if (left <= 0) return autoLeave();
+    if (left <= 5 * 60000 && !warnedClosing) { warnedClosing = true; notify('soft', `This session closes for participants in ${Math.ceil(left / 60000)} minutes`); }
+  }
+  // evaluator view of the time limit
+  if (S?.kind === 'staff' && S.participantsUntil) {
+    const left = S.participantsUntil - Date.now();
+    document.querySelectorAll('[data-pleft]').forEach(el => { el.textContent = left > 0 ? `${Math.ceil(left / 60000)} min left` : 'closed'; });
+    if (left <= 0 && !S._closedShown) { S._closedShown = true; render(); }
+  }
   if (!S || !S.round) return;
   const left = remainingNow(), r = S.round;
   document.querySelectorAll('[data-timer]').forEach(el => { el.textContent = mmss(left); el.classList.toggle('low', r.status === 'running' && left < 120000); });
@@ -362,7 +391,12 @@ function renderLanding() {
   if (joinCode && landing === 'home') landing = 'join';
   if (staffCode && landing === 'home') { landing = 'staff'; staffTab = 'pin'; }
   let body = '';
-  if (landing === 'home') {
+  if (landing === 'ended') {
+    body = `<div class="hero"><div class="fan" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <h1>This session has ended</h1><p>${endedTopic ? esc(endedTopic) + '. ' : ''}Thanks for taking part. Your phone has left the session and your cards are gone from this device.</p></div>
+      <button class="choice" data-a="land" data-to="join"><span class="ico" style="background:var(--r-blue);color:#fff">🂠</span><span><b>Join another class</b><span class="d">Scan a new QR code or type a code</span></span><span class="go">›</span></button>
+      <button class="back" data-a="land" data-to="home">‹ Home</button>`;
+  } else if (landing === 'home') {
     body = `<div class="hero"><div class="fan" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
       <h1>Classroom role-play, dealt to your phone.</h1><p>Practise leading a class. Learners get secret cards, trainers face real situations, and evaluators run it and capture it all.</p></div>
       <button class="choice" data-a="land" data-to="join"><span class="ico" style="background:var(--r-blue);color:#fff">🂠</span><span><b>Join a class</b><span class="d">I'm a participant</span></span><span class="go">›</span></button>
@@ -430,7 +464,7 @@ function renderParticipant() {
   }
   if (done.length) deck += `<div class="played"><div class="eyebrow">Played this round (${done.length})</div>${done.map(d => `<div class="mini"><span class="cbar ${esc(d.scenario?.color)}"></span>${esc(d.scenario?.title || 'Scenario')} <span class="muted small" style="margin-left:auto">✓ done</span></div>`).join('')}</div>`;
   return `<div class="p-page">${head}
-    <div class="p-status"><div class="grow"><b>${esc(me.name)}</b><div>Round ${r.index} · ${statusText(r.status)}${r.status === 'running' ? ' · ' + esc(PHASES[r.activity] || '') : ''}</div></div><div class="scoreboard" data-timer>${mmss(r.remainingMs)}</div></div>
+    <div class="p-status"><div class="grow"><b>${esc(me.name)}</b><div>Round ${r.index} · ${statusText(r.status)}${r.status === 'running' ? ' · ' + esc(PHASES[r.activity] || '') : ''}${closesAt ? ` · open until ${clockOf(closesAt)}` : ''}</div></div><div class="scoreboard" data-timer>${mmss(r.remainingMs)}</div></div>
     ${enable}<div class="deck">${deck}</div>
     <p class="footer-note">Act out a card only when it is dealt to you. Keep it realistic and respectful.</p></div>`;
 }
@@ -481,6 +515,14 @@ function nextStepCard() {
   return `<section class="nextstep"><div class="grow"><div class="eyebrow" style="color:var(--sun-ink)">What to do now</div><div class="ns-m">${esc(msg)}</div>${sub ? `<div class="ns-s">${esc(sub)}</div>` : ''}</div>${btn}</section>`;
 }
 
+function accessStrip() {
+  const until = S.participantsUntil; if (!until) return '';
+  const open = Date.now() < until, left = until - Date.now();
+  return open
+    ? `<section class="access ${left < 10 * 60000 ? 'soon' : ''}"><div class="grow"><b>👥 Participants can stay until ${clockOf(until)}</b> <span class="chip ${left < 10 * 60000 ? 'warn' : ''}" data-pleft>${Math.ceil(left / 60000)} min left</span><div class="small muted">Then their phones leave the session automatically. Evaluators keep access to everything.</div></div><div class="row nowrap"><button class="btn btn-sm" data-a="extendP" data-v="30">+30 min</button><button class="btn btn-sm btn-quiet" data-a="closeP">Close now</button></div></section>`
+    : `<section class="access closed"><div class="grow"><b>🔒 Closed for participants</b> <span class="small muted">at ${clockOf(until)}</span><div class="small muted">Their phones have left. You can still review, score, print and export everything here.</div></div><button class="btn btn-sm btn-primary" data-a="extendP" data-v="30">Reopen for 30 min</button></section>`;
+}
+
 // ---------- setup ----------
 function viewSetup() {
   const r = S.round, ps = S.participants, lobby = r.status === 'lobby';
@@ -497,6 +539,7 @@ function viewSetup() {
   const auto = r.autoPrompts !== false;
   const waiting = S.waiting || [];
   return `<div class="page-title"><h1>Set up round ${r.index}</h1></div>
+  ${accessStrip()}
   ${nextStepCard()}
   <div class="cols cols-main"><div class="stack-sm">
     ${step(1, 'Everyone joins', `${ps.length} people joined · code ${esc(S.code)}`, `<p class="small muted">People scan the QR code, or open the link and type the code.</p>
@@ -574,7 +617,7 @@ function viewRun() {
     : r.status === 'paused' ? `<button class="btn btn-primary btn-lg grow" data-a="resume">▶ Resume</button><button class="btn btn-lg btn-danger grow" data-a="end">■ End round</button>`
     : `<button class="btn btn-primary btn-lg grow" data-a="nextRound">Next round ›</button>`;
   const what = { lobby: r.assignedAt ? 'Press Start when the Lead Trainer begins.' : 'Finish Set up first (trainers and role cards).', running: r.autoPrompts !== false ? 'Cards go out on the timeline. Deal extra ones below if you like.' : 'Manual mode. Deal scenario cards below when the moment is right.', paused: 'Paused. No cards go out while paused.', ended: 'Round over. Finish the Review. Next round rotates the trainers.' }[r.status];
-  return `<div class="cols cols-main"><div class="stack">
+  return `${accessStrip()}<div class="cols cols-main"><div class="stack">
     <section class="card raised"><div class="row between"><span class="small muted">Round ${r.index} · Lead <b>${esc(r.leadName || '—')}</b> · Support <b>${esc(r.supportName || '—')}</b></span>${chip(statusText(r.status), live ? 'good' : r.status === 'paused' ? 'warn' : '')}</div>
       <div class="bigtimer" data-timer>${mmss(r.remainingMs)}</div><div class="progress"><i id="progress"></i></div>
       <p class="ns-s" style="margin:.6rem 0 0">${esc(what)}</p>
@@ -843,6 +886,8 @@ document.addEventListener('click', async e => {
     case 'resume': return cmd('resume');
     case 'end': if (await confirmBox('End this round now?', 'End round', true)) cmd('end'); return;
     case 'nextRound': if (await confirmBox('Start the next round? This one is saved and the trainers rotate.', 'Next round')) { const ok = await cmd('nextRound', {}, 'Next round ready'); if (ok) { view = 'setup'; render(true); } } return;
+    case 'extendP': return cmd('extendParticipants', { minutes: Number(el.dataset.v) }, Date.now() < (S.participantsUntil || 0) ? `Participants get ${el.dataset.v} more minutes` : 'Reopened for participants for 30 minutes');
+    case 'closeP': if (await confirmBox('Close the session for participants now? Their phones leave straight away. You keep access to everything.', 'Close for participants', true)) cmd('closeParticipants', {}, 'Closed for participants'); return;
     case 'nudge': return cmd('nudge', { instanceId: id }, `Nudged ${pname(S.round.incidents.find(x => x.id === id)?.participantId)}`);
     case 'resolve': case 'cancel': return cmd(a, { instanceId: id });
     case 'tagfilter': tagFilter = el.dataset.v; render(true); return;

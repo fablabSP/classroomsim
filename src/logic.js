@@ -4,7 +4,7 @@ import SCENARIOS from './scenarios.js';
 import { QUICK_TAGS, RUBRIC, SUPPORT_AREA } from './quicktags.js';
 
 export { SCENARIOS, QUICK_TAGS, RUBRIC };
-export const VERSION = '3.3.0';
+export const VERSION = '3.4.0';
 export const COLORS = ['red', 'green', 'yellow', 'blue', 'black'];
 export const PHASES = ['explanation', 'discussion', 'independent', 'group', 'conclusion'];
 export const DURATIONS = [5, 10, 15, 20, 30];
@@ -12,6 +12,7 @@ export const INCIDENT_SECONDS = 90;
 const MAX_EVENTS = 250;
 const MAX_PARTICIPANTS = 80;
 export const PER_COLOUR = [1, 2, 3];
+export const PARTICIPANT_MINUTES = 60;
 const MAX_EVALUATORS = 10;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L: easy to read aloud
 
@@ -56,6 +57,8 @@ export function createSession(b, now) {
     mode: b.mode === 'assessment' ? 'assessment' : 'practice',
     durationMinutes: dur, autoPrompts: b.autoPrompts !== false,
     evaluatorPin: newPin(),
+    // Participants can use the session until this time; evaluators are never time-limited.
+    participantsUntil: now + PARTICIPANT_MINUTES * 60000,
     evaluators: [], participants: [], customScenarios: [], roleHistory: {},
     archivedRounds: [], // [{index, leadName, supportName, decision, endedAt}]
     round: null
@@ -90,6 +93,7 @@ export function joinParticipant(s, rawName, now, id = null) {
   const name = str(rawName, 64);
   if (name.length < 2) fail('Please enter your name (at least 2 letters).');
   if (s.participants.length >= MAX_PARTICIPANTS) fail('This session is full.', 409);
+  if (s.participantsUntil && now > s.participantsUntil) fail('This session has closed for participants.', 410);
   if (s.round.status === 'running' || s.round.status === 'paused') fail('A round is in progress. You will be let in when this round finishes.', 409);
   const existing = s.participants.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (existing) fail('Someone with that name has already joined. Add your surname or an initial.', 409);
@@ -262,6 +266,7 @@ export function redact(s, who, now, presence = {}) {
     base.archivedRounds = s.archivedRounds;
     base.durationOptions = DURATIONS;
     if (who.kind === 'instructor') { base.evaluatorPin = s.evaluatorPin; base.instructorName = s.instructorName; }
+    base.participantsUntil = s.participantsUntil || null;
   } else {
     const pid = who.participant.id;
     const type = pid === r.leadId ? 'lead' : pid === r.supportId ? 'support' : 'student';
@@ -277,7 +282,7 @@ export function redact(s, who, now, presence = {}) {
 
 // ---------- commands ----------
 const EVAL_ACTIONS = new Set(['observe', 'editObservation', 'deleteObservation', 'rateIncident', 'assess']);
-const SEND_ACTIONS = new Set(['trigger', 'triggerActivity', 'resolve', 'cancel', 'nudge']); // instructor + evaluators
+const SEND_ACTIONS = new Set(['trigger', 'triggerActivity', 'resolve', 'cancel', 'nudge', 'extendParticipants', 'closeParticipants']); // instructor + evaluators
 export function isEvalAction(a) { return EVAL_ACTIONS.has(a); }
 
 const RATING_FIELDS = {
@@ -396,6 +401,16 @@ export function applyCommand(s, who, b, now) {
       const sc = shuffle(catalog(s).filter(x => x.phase === r.activity && x.color !== 'green' && freeColours.has(x.color)))[0];
       if (!sc) fail('No matching scenario for this lesson phase right now. Try another phase or pick one from the library.');
       activate(s, sc.id, null, 'activity', now, who.name); break;
+    }
+    case 'extendParticipants': {
+      const mins = Number(b.minutes); if (![15, 30, 60].includes(mins)) fail('Choose 15, 30 or 60 minutes.');
+      s.participantsUntil = Math.max(now, s.participantsUntil || now) + mins * 60000;
+      log(s, r, 'participants-extended', `${who.name} gave participants ${mins} more minutes`, now); break;
+    }
+    case 'closeParticipants': {
+      s.participantsUntil = now;
+      for (const x of r.incidents) if (x.status === 'active') { x.status = 'cancelled'; x.endedAt = now; x.endedElapsedMs = elapsed(r, now); }
+      log(s, r, 'participants-closed', `${who.name} closed the session for participants`, now); break;
     }
     case 'nudge': {
       const inc = r.incidents.find(x => x.id === b.instanceId); if (!inc || inc.status !== 'active') fail('That card is no longer in play.');

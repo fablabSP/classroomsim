@@ -405,3 +405,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .iphone-tip { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: .8rem .9rem; margin-bottom: 1.2rem; font-size: .95rem; }
 .iphone-tip ul { margin: .35rem 0 .5rem; padding-left: 1.2rem; }
 @media (prefers-reduced-motion: reduce) { .table-felt.calling { animation: none !important; background: rgba(255, 200, 61, .96); } .table-felt.calling .msg { color: var(--ink); } }
+
+/* participant time limit strip (evaluators) */
+.access { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: center; background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: .7rem .9rem; margin-bottom: 1rem; }
+.access .grow { min-width: 220px; }
+.access.soon { background: var(--warn-soft); }
+.access.closed { background: var(--surface-2); border-style: dashed; }

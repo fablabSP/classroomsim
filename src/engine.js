@@ -38,7 +38,7 @@ export async function createSession(store, form) {
       await store.batch([
         // Proof of the course start passcode (checked by the rules, never readable)
         { op: 'set', path: `${p.session}/proof/${store.uid}`, data: { key: String(form.startPasscode || '').trim() } },
-        { op: 'set', path: p.session, data: { ownerUid: store.uid, createdAt: now, updatedAt: now, cohort: s.cohort, lessonTopic: s.lessonTopic, round: plain(L.publicRound(s)) } },
+        { op: 'set', path: p.session, data: { ownerUid: store.uid, createdAt: now, updatedAt: now, cohort: s.cohort, lessonTopic: s.lessonTopic, round: plain(L.publicRound(s)), participantsUntil: s.participantsUntil } },
         { op: 'set', path: p.pin, data: { pin: s.evaluatorPin } },
         { op: 'set', path: `${p.staff}/${store.uid}`, data: { name: s.instructorName, joinedAt: now, seenAt: now, owner: true } }
       ]);
@@ -157,8 +157,12 @@ export class StaffSession {
         if (before !== JSON.stringify(after)) after ? tx.set(`${this.p.views}/${id}`, plain(after)) : tx.delete(`${this.p.views}/${id}`);
       }
       if (s.evaluatorPin !== prev.evaluatorPin) tx.set(this.p.pin, { pin: s.evaluatorPin });
+      // One update to the shared session doc (clock + participant time limit), never two in one transaction.
+      const pub = {};
       const pubRound = L.publicRound(s);
-      if (JSON.stringify(pubRound) !== JSON.stringify(L.publicRound(prev)) || out.forcePublic) tx.update(this.p.session, { round: plain(pubRound), updatedAt: now });
+      if (JSON.stringify(pubRound) !== JSON.stringify(L.publicRound(prev)) || out.forcePublic) pub.round = plain(pubRound);
+      if (s.participantsUntil !== prev.participantsUntil) pub.participantsUntil = s.participantsUntil;
+      if (Object.keys(pub).length) tx.update(this.p.session, { ...pub, updatedAt: now });
       if (out.archive) tx.set(`${this.p.rounds}/${out.archive.index}`, { index: out.archive.index, data: JSON.stringify(out.archive) });
       tx.set(this.p.state, { data: JSON.stringify(s), v: (d.v || 0) + 1, updatedAt: now });
       return out;

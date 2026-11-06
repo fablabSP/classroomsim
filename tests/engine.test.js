@@ -163,3 +163,24 @@ test('without a start passcode set, anyone can start a session', async () => {
   const hub = new MemoryHub({ rules: true });
   assert.match(await E.createSession(new MemoryStore(hub, 'u-a'), { instructorName: 'A' }), /^[A-Z2-9]{6}$/);
 });
+
+test('participants are locked out after the time limit; evaluators keep full access; reopen lets them back', async () => {
+  const { hub, code, staff, people } = await setup(5);
+  const P = E.paths(code), p0 = people[0];
+  assert.ok(staff.state.participantsUntil > Date.now() + 59 * 60000, 'defaults to 1 hour');
+  assert.ok((await p0.st.getDoc(P.session)).participantsUntil > Date.now(), 'phones can read the closing time');
+  await staff.command({ action: 'closeParticipants' });
+  await until(() => (hub.docs.get(P.session)?.data.participantsUntil || 0) <= Date.now());
+  await sleep(5);
+  await assert.rejects(p0.st.getDoc(`${P.views}/u-p0`), /permission/i, 'cannot read own cards after closing');
+  await assert.rejects(p0.st.updateDoc(`${P.people}/u-p0`, { 'acks.x': 1 }), /permission/i, 'cannot send anything after closing');
+  const late = new MemoryStore(hub, 'u-late');
+  await assert.rejects(E.joinParticipant(late, code, 'Too Late'), /permission/i, 'cannot join after closing');
+  assert.ok(await staff.store.getDoc(P.state), 'evaluator still reads everything');
+  await staff.command({ action: 'observe', text: 'written after closing', competency: 'General' });
+  assert.ok((await staff.rounds()) !== null, 'evaluator still reaches records');
+  await staff.command({ action: 'extendParticipants', minutes: 30 });
+  await until(() => (hub.docs.get(P.session)?.data.participantsUntil || 0) > Date.now() + 29 * 60000);
+  assert.ok(await p0.st.getDoc(`${P.views}/u-p0`), 'reopened: participant can read again');
+  staff.stop();
+});

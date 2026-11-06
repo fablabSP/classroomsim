@@ -74,6 +74,7 @@ async function seed() {
   const pin = hub.read('u-louis', E.paths(code).pin).data.pin;
   await E.joinStaff(new MemoryStore(hub, 'u-koh'), code, 'Ms Koh', pin);
   host = new E.StaffSession(owner, code).start(); // a background staff device: lets people in, runs timers
+  window.__demoHost = host; // used by automated tests
   unsub = hub.subscribe('u-louis', 'doc', E.paths(code).state, onState);
   $('m-code').textContent = code; $('m-pin').textContent = pin;
   mount('ins', 'u-louis', { code, kind: 'staff' }, true);

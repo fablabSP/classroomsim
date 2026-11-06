@@ -10,6 +10,10 @@ It is a web app **hosted on GitHub Pages**, built and published by GitHub itself
 
 ---
 
+## What's new in 3.4
+
+- **Participants leave automatically after 1 hour.** Evaluators keep access to everything. See [Participant time limit](#participant-time-limit).
+
 ## What's new in 3.3
 
 - **Better alerts on iPhones** (which can't be vibrated by websites): the screen pulses yellow and a chime repeats until the card is opened, with an Off/Soft/Loud setting. Evaluators get a **🔔 Nudge** button for cards not yet flipped. See [Phone alerts and vibration](#phone-alerts-and-vibration).
@@ -142,6 +146,19 @@ GitHub runs `npm test` (the logic and engine tests) on every commit and won't pu
 **Good practice:** send the evaluator code privately (use **Copy private evaluator invite**). Never show it on the projector (the join QR screen never does) or post it in a class chat. If it leaks, the session owner taps **New code**.
 
 **Limits to know about.** Sign-in is anonymous (no school accounts), so anyone who *has* the evaluator code is trusted as an evaluator, and evaluators share one session record, so one evaluator could in principle edit another's notes. The change history makes that visible. For formal, high-stakes assessment, the next step up would be signing evaluators in with school Microsoft or Google accounts. Firebase supports that, and I can add it if you want it.
+
+## Participant time limit
+
+Each session is open to **participants for 1 hour** from when it is created. **Evaluators are never time-limited**, so Review, Records, the printable report and exports stay available, also from "Your sessions on this device".
+
+**How it works:**
+1. **The session stores a closing time** (`participantsUntil`), 1 hour after it is created.
+2. **Phones leave by themselves.** Each participant's phone shows "open until 3:45 pm", warns them 5 minutes before, and at that time disconnects, removes itself from the session and shows "This session has ended".
+3. **The database enforces it.** `firestore.rules` compares Google's own server clock with the closing time. After it, a participant's phone **cannot read its cards, send anything, or join**, even if someone keeps the page open or tampers with the app. Evaluator access is checked separately and has no time limit.
+
+**Evaluator controls** (top of Set up and Run): **+30 min** if the class runs long, **Close now** to send all participant phones out straight away, and **Reopen for 30 min** after closing. Participants can then rejoin by scanning the QR again, and their earlier answers and history are kept.
+
+To change the default of 60 minutes, edit `PARTICIPANT_MINUTES` in `src/logic.js`.
 
 ## Phone alerts and vibration
 

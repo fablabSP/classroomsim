@@ -11,6 +11,8 @@ service cloud.firestore {
     function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
     function isOwner(code) { return signedIn() && get(sessionPath(code)).data.ownerUid == me(); }
     function smallMap(m) { return m is map && m.size() <= 60; }
+    // Participants are locked out after participantsUntil (Google's server clock). Evaluators never are.
+    function participantsOpen(code) { return request.time.toMillis() < get(sessionPath(code)).data.get('participantsUntil', 8640000000000000); }
     // Optional course-wide passcode for starting sessions: create config/access { startCode: "..." } in the console.
     function startAllowed(code) {
       return !exists(/databases/$(db)/documents/config/access)
@@ -26,9 +28,9 @@ service cloud.firestore {
       allow create: if signedIn()
         && code.matches('^[A-Z2-9]{6}$')
         && request.resource.data.ownerUid == me()
-        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round', 'participantsUntil'])
         && startAllowed(code);
-      allow update: if isStaff(code) && onlyChanged(['round', 'updatedAt']);
+      allow update: if isStaff(code) && onlyChanged(['round', 'updatedAt', 'participantsUntil']);
       allow delete: if signedIn() && resource.data.ownerUid == me();
 
       // Proof of the start passcode, written once when a session is created; nobody can read it
@@ -62,19 +64,19 @@ service cloud.firestore {
 
       // One participant's private cards
       match /views/{uid} {
-        allow read: if signedIn() && (uid == me() || isStaff(code));
+        allow read: if signedIn() && ((uid == me() && participantsOpen(code)) || isStaff(code));
         allow write: if isStaff(code);
       }
 
       // Participant join + "I read it" signals
       match /people/{uid} {
         allow read: if signedIn() && (uid == me() || isStaff(code));
-        allow create: if signedIn() && uid == me()
+        allow create: if signedIn() && uid == me() && participantsOpen(code)
           && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'acks', 'approached'])
           && request.resource.data.name is string
           && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64
           && smallMap(request.resource.data.acks) && smallMap(request.resource.data.approached);
-        allow update: if signedIn() && uid == me() && onlyChanged(['name', 'seenAt', 'acks', 'approached'])
+        allow update: if signedIn() && uid == me() && participantsOpen(code) && onlyChanged(['name', 'seenAt', 'acks', 'approached'])
           && request.resource.data.name is string
           && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64
           && smallMap(request.resource.data.acks) && smallMap(request.resource.data.approached);
