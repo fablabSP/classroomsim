@@ -10,6 +10,9 @@ It is a web app **hosted on GitHub Pages**, built and published by GitHub itself
 
 ---
 
+## What's new in 3.8.2
+- **Colour-coded scenario cards:** the three parts are numbered steps in their own colour, so learners can find them at a glance: 1 Do this now (amber), 2 If a trainer comes to you, say (blue), 3 When they help you well (green).
+
 ## What's new in 3.8.1
 - **Observe tags in two columns:** for each rubric area, things to improve (−) on the left and strengths (+) on the right, with a column heading at the top.
 

@@ -335,6 +335,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .art-back .emb { display: block; width: calc(var(--w) * .62); max-width: calc(var(--w) * .42 * var(--ea)); aspect-ratio: var(--ea); background: var(--emb) center / contain no-repeat; margin-top: calc(var(--w) * .12); }
 .art-back .who { position: relative; color: #fff; font-family: var(--display); font-weight: 800; font-size: .95rem; opacity: .92; }
 .art-back .tapflip { position: absolute; bottom: calc(var(--w) * .1); }
+/* scenario card steps, colour-coded */
+.sec { border-radius: .6em; padding: .4em .55em .45em; border-left: .32em solid var(--sc); background: var(--sbg); }
+.sec p { margin: 0; }
+.sec-h { display: flex; align-items: center; gap: .4em; font-family: var(--display); font-weight: 900; font-size: .7em; letter-spacing: .07em; text-transform: uppercase; color: var(--sc); margin-bottom: .2em; }
+.sec-h .sn { width: 1.6em; height: 1.6em; border-radius: 50%; display: grid; place-items: center; background: var(--sc); color: #fff; font-size: 1em; letter-spacing: 0; flex: none; }
+.sec-do  { --sc: #a85d00; --sbg: #fff2cc; }
+.sec-say { --sc: #1f5fbf; --sbg: #e4eeff; }
+.sec-end { --sc: #1b7a43; --sbg: #e1f5e8; }
+.face.front.art .sec .do { font-size: 1em; }
 /* dealing animation */
 .pcard.deal { animation: deal .6s cubic-bezier(.2, .9, .3, 1.15) both; }
 @keyframes deal { from { transform: translateY(-60vh) rotate(-14deg) scale(.85); opacity: 0; } to { transform: none; opacity: 1; } }

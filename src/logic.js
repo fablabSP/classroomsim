@@ -4,7 +4,7 @@ import SCENARIOS from './scenarios.js';
 import { QUICK_TAGS, RUBRIC, SUPPORT_AREA } from './quicktags.js';
 
 export { SCENARIOS, QUICK_TAGS, RUBRIC };
-export const VERSION = '3.8.1';
+export const VERSION = '3.8.2';
 export const COLORS = ['red', 'green', 'yellow', 'blue', 'black'];
 export const PHASES = ['explanation', 'discussion', 'independent', 'group', 'conclusion'];
 export const DURATIONS = [5, 10, 15, 20, 30];

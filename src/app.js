@@ -339,9 +339,10 @@ function scenarioCard(sc, { id, flipped, deal, staticCard, roundIndex, who, acti
   return cardHTML({
     id, kind: 'scenario', color: c, sym: ROLE[c]?.sym || '!', k: `Scenario card · ${c}`, n: sc.title, title: sc.title, flipped, deal, static: staticCard, action,
     back: { kind: 'Scenario card', who: who || 'For your eyes only' }, backMark: '⚡',
-    body: `<div class="eyebrow">Do this now</div><p class="do">${esc(sc.instruction)}</p>
-      <div class="csec"><div class="eyebrow">If a trainer comes to you, say</div><p>${esc(sc.response)}</p></div>
-      <div class="csec"><div class="eyebrow">When they help you well</div><p>${esc(sc.recovery)}</p></div>`,
+    // Colour-coded steps so learners can find each part at a glance: 1 do (amber), 2 say (blue), 3 finish (green)
+    body: `<div class="sec sec-do"><div class="sec-h"><span class="sn">1</span>Do this now</div><p class="do">${esc(sc.instruction)}</p></div>
+      <div class="sec sec-say"><div class="sec-h"><span class="sn">2</span>If a trainer comes to you, say</div><p>${esc(sc.response)}</p></div>
+      <div class="sec sec-end"><div class="sec-h"><span class="sn">3</span>When they help you well</div><p>${esc(sc.recovery)}</p></div>`,
     foot: [`Round ${roundIndex ?? '–'} · ${PHASES[sc.phase] || sc.phase || ''}`, sc.difficulty === 'custom' ? 'Custom' : sc.id]
   });
 }
