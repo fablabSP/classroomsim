@@ -33,11 +33,18 @@ export async function createSession(store, form) {
     const p = paths(s.code);
     try {
       await store.batch([
+        // Proof of the course start passcode (checked by the rules, never readable)
+        { op: 'set', path: `${p.session}/proof/${store.uid}`, data: { key: String(form.startPasscode || '').trim() } },
         { op: 'set', path: p.session, data: { ownerUid: store.uid, createdAt: now, updatedAt: now, cohort: s.cohort, lessonTopic: s.lessonTopic, round: plain(L.publicRound(s)) } },
         { op: 'set', path: p.pin, data: { pin: s.evaluatorPin } },
         { op: 'set', path: `${p.staff}/${store.uid}`, data: { name: s.instructorName, joinedAt: now, seenAt: now, owner: true } }
       ]);
-    } catch (e) { if (isDenied(e)) continue; throw e; } // code already taken
+    } catch (e) {
+      if (!isDenied(e)) throw e;
+      let taken = false; try { taken = !!(await store.getDoc(p.session)); } catch {}
+      if (taken) continue; // that session code is already in use: try another
+      throw new L.UserError('That start passcode is not correct. Ask your course admin for it.', 403);
+    }
     await store.setDoc(p.state, { data: JSON.stringify(s), v: 1, updatedAt: now });
     return s.code;
   }
@@ -57,11 +64,11 @@ export async function joinStaff(store, rawCode, name, pin) {
   if (String(name || '').trim().length < 2) throw new L.UserError('Please enter your name (at least 2 letters).');
   const me = `${paths(code).staff}/${store.uid}`;
   try {
-    await store.setDoc(me, { name: String(name).trim().slice(0, 64), joinedAt: Date.now(), seenAt: Date.now(), pin: String(pin || '').trim() });
+    await store.setDoc(me, { name: String(name).trim().slice(0, 64), joinedAt: Date.now(), seenAt: Date.now(), pin: L.formatEvaluatorCode(pin) });
   } catch (e) {
     if (!isDenied(e)) throw e;
     try { if (await store.getDoc(me)) return code; } catch {} // already staff on this device
-    throw new L.UserError('That evaluator PIN is not correct. Ask the evaluator who started the session for the 6-digit PIN.', 403);
+    throw new L.UserError('That evaluator code is not correct. Ask the evaluator who started the session for the 10-character code.', 403);
   }
   return code;
 }
@@ -107,7 +114,7 @@ export class StaffSession {
   who() {
     const s = this.state, uid = this.store.uid;
     const name = s?.ownerUid === uid ? s.instructorName : (s?.evaluators.find(e => e.id === uid)?.name || this.staffDocs.find(d => d.id === uid)?.data.name || 'Staff');
-    return { kind: 'instructor', fullControl: true, name };
+    return { kind: 'instructor', fullControl: true, isOwner: s?.ownerUid === uid, name };
   }
   presence(now) {
     const m = {};

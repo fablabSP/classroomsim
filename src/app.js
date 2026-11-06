@@ -232,20 +232,25 @@ function seg(name, options, current, extra = '', compact = false) {
   return `<div class="seg ${compact ? 'compact' : ''}" role="group">${options.map(([v, l, tone]) => `<button type="button" class="${String(current) === String(v) ? 'on ' + (tone || '') : ''}" data-seg="${esc(name)}" data-v="${esc(v)}" ${extra} aria-pressed="${String(current) === String(v)}">${esc(l)}</button>`).join('')}</div>`;
 }
 
+// iPhone tap haptic: iOS gives a haptic tick only when a finger really taps a native switch
+// (since iOS 26.5, script-triggered taps no longer count). So tappable cards and quick-log buttons
+// carry an invisible switch on top. Android gets a short vibration on the same taps.
+const HAPT = '<input type="checkbox" switch class="hapt" aria-hidden="true" tabindex="-1">';
+function tapBuzz() { if (prefs.vibrate && canVibrate()) { try { navigator.vibrate(18); } catch {} } }
+
 // ---------------- playing cards ----------------
 // opts: {id, kind: role|scenario|trainer, color, sym, k, n, body, foot:[l,r], back:{kind, who}, flipped, static, deal, action}
 function cardHTML(o) {
   const backCls = { role: 'back-role', scenario: 'back-scenario', trainer: 'back-trainer' }[o.kind];
-  const tag = o.static ? 'div' : 'button';
-  return `<${tag} class="pcard c-${esc(o.color)} ${o.flipped || o.static ? 'is-flipped' : ''} ${o.static ? 'static' : ''} ${o.deal ? 'deal' : ''}" ${o.static ? '' : `type="button" data-a="${o.action || 'flip'}" data-id="${esc(o.id)}" aria-label="${esc(o.back.kind)}: tap to flip"`}>
-    <div class="pcard-inner">
+  return `<div class="pcard c-${esc(o.color)} ${o.flipped || o.static ? 'is-flipped' : ''} ${o.static ? 'static' : ''} ${o.deal ? 'deal' : ''}" ${o.static ? '' : `role="button" tabindex="0" data-a="${o.action || 'flip'}" data-id="${esc(o.id)}" aria-label="${esc(o.back.kind)}: tap to flip"`}>
+    ${o.static ? '' : HAPT}<div class="pcard-inner">
       <div class="face back ${backCls}" aria-hidden="${o.flipped ? 'true' : 'false'}"><div class="back-emblem"><div class="mark">${esc(o.backMark || 'CS')}</div><div class="kind">${esc(o.back.kind)}</div><div class="who">${esc(o.back.who || 'ClassroomSim')}</div></div><span class="tapflip">Tap to flip</span></div>
       <div class="face front" aria-hidden="${o.flipped || o.static ? 'false' : 'true'}">
         <div class="band"><span class="sym">${esc(o.sym)}</span><div><div class="k">${esc(o.k)}</div><div class="n">${esc(o.n)}</div></div></div>
         <div class="cbody">${o.body}</div>
         <div class="cfoot"><span>${esc(o.foot[0])}</span><span>${esc(o.foot[1])}</span></div>
       </div>
-    </div></${tag}>`;
+    </div></div>`;
 }
 function scenarioCard(sc, { id, flipped, deal, staticCard, roundIndex, who, action } = {}) {
   const c = sc.color;
@@ -324,6 +329,7 @@ function renderBootError() {
 function renderLanding() {
   const q = new URLSearchParams(location.search);
   const joinCode = q.get('join'), staffCode = q.get('staff') || q.get('eval');
+  const evalKey = (() => { try { return new URLSearchParams(location.hash.slice(1)).get('k') || ''; } catch { return ''; } })();
   if (joinCode && landing === 'home') landing = 'join';
   if (staffCode && landing === 'home') { landing = 'staff'; staffTab = 'pin'; }
   let body = '';
@@ -343,20 +349,21 @@ function renderLanding() {
       <button class="back" data-a="land" data-to="home">‹ Back</button>`;
   } else {
     const mine = mySessions();
-    body = `<div class="hero"><h1>Evaluator</h1><p>Start a new session, or join one with the evaluator PIN.</p></div>
+    body = `<div class="hero"><h1>Evaluator</h1><p>Start a new session, or join one with an evaluator code.</p></div>
       ${mine.length ? `<section class="card raised" style="margin-bottom:1.2rem"><h3>Your sessions on this device</h3><p class="small muted" style="margin-top:0">Run several classes and switch between them any time.</p>${mine.map(x => `<div class="sess-row"><div class="grow"><b>${esc(x.topic || 'Session')}</b><div class="small muted"><span class="codechip">${esc(x.code)}</span> ${esc(x.cohort || '')}${x.cohort ? ' · ' : ''}${new Date(x.at).toLocaleDateString()}</div></div><button class="btn btn-sm btn-primary" data-a="openSession" data-v="${esc(x.code)}">Open</button><button class="btn btn-sm btn-quiet" data-a="forgetSession" data-v="${esc(x.code)}" aria-label="Remove from this list">✕</button></div>`).join('')}</section>` : ''}
-      <div class="tabs2"><button class="${staffTab === 'new' ? 'on' : ''}" data-a="staffTab" data-v="new">Start a session</button><button class="${staffTab === 'pin' ? 'on' : ''}" data-a="staffTab" data-v="pin">Join with evaluator PIN</button></div>
+      <div class="tabs2"><button class="${staffTab === 'new' ? 'on' : ''}" data-a="staffTab" data-v="new">Start a session</button><button class="${staffTab === 'pin' ? 'on' : ''}" data-a="staffTab" data-v="pin">Join with evaluator code</button></div>
       ${staffTab === 'new' ? `<form class="card raised" id="create-form" autocomplete="off">
         <div class="field"><label class="lbl" for="c-name">Your name</label><input id="c-name" name="instructorName" maxlength="70" placeholder="e.g. Louis" required></div>
         <div class="field"><label class="lbl" for="c-cohort">Class or cohort</label><input id="c-cohort" name="cohort" maxlength="80" placeholder="e.g. CET Cohort 07"></div>
         <div class="field"><label class="lbl" for="c-topic">Lesson topic</label><input id="c-topic" name="lessonTopic" maxlength="130" placeholder="e.g. Prompting an AI chatbot"></div>
+        <div class="field"><label class="lbl" for="c-pass">Start passcode</label><input id="c-pass" name="startPasscode" type="password" maxlength="64" autocomplete="off" placeholder="From your course admin"><p class="hint">Only needed if your course admin has set one. It stops anyone else from starting sessions.</p></div>
         <div class="field"><span class="lbl">Length of each teaching round</span>${seg('c-dur', [[5, '5 min'], [10, '10 min'], [15, '15 min'], [20, '20 min']], createDraft.dur)}</div>
         <div class="field"><span class="lbl">Mode</span>${seg('c-mode', [['practice', 'Practice'], ['assessment', 'Assessment']], createDraft.mode)}<p class="hint" id="mode-hint">${MODE_HINT[createDraft.mode]}</p></div>
         <button class="btn btn-primary btn-lg btn-block" type="submit">Create session</button></form>`
       : `<form class="card raised" id="staff-form" autocomplete="off">
         <div class="field"><label class="lbl" for="e-name">Your name</label><input id="e-name" name="name" required minlength="2" maxlength="64" placeholder="e.g. Ms Koh"></div>
         <div class="field"><label class="lbl" for="e-code">Session code</label><input id="e-code" name="code" class="code-input" required minlength="6" maxlength="6" value="${esc(staffCode || '')}" placeholder="ABC234" autocapitalize="characters" spellcheck="false"></div>
-        <div class="field"><label class="lbl" for="e-pin">Evaluator PIN</label><input id="e-pin" name="pin" class="code-input" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="••••••"></div>
+        <div class="field"><label class="lbl" for="e-pin">Evaluator code</label><input id="e-pin" name="pin" class="code-input evcode" required minlength="10" maxlength="14" placeholder="XXXX-XXXX-XX" value="${esc(evalKey)}" autocapitalize="characters" spellcheck="false" autocomplete="off"><p class="hint">10 letters and numbers from the evaluator who started the session. Dashes and capitals don't matter.</p></div>
         <button class="btn btn-primary btn-lg btn-block" type="submit">Join as evaluator</button></form>`}
       <button class="back" data-a="land" data-to="home">‹ Back</button>`;
   }
@@ -481,10 +488,11 @@ function viewSetup() {
       <div class="${ps.length > 12 ? 'peoplelist' : ''}">${ps.length ? ps.map(p => `<div class="person"><span class="dot ${p.online ? 'on' : ''}"></span><span class="grow">${esc(p.name)}</span>${p.id === r.leadId ? '<span class="role lead">★ Lead</span>' : p.id === r.supportId ? '<span class="role support">◇ Support</span>' : r.roles[p.id] ? roleBadge(r.roles[p.id]) : ''}${lobby ? `<button class="btn btn-sm btn-quiet" data-a="removeParticipant" data-id="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">✕</button>` : ''}</div>`).join('') : '<div class="empty">Nobody yet. Show the QR code.</div>'}</div>
       ${waiting.length ? `<div class="note warn small" style="margin-top:.6rem"><b>Waiting to get in:</b> ${waiting.map(w => esc(w.name)).join(', ')}. They join at the next round, or need to change a name already in use.</div>` : ''}
       <p class="hint">Green dot means their phone checked in during the last minute or so.</p></section>
-    <section class="card"><h3>Evaluators</h3><p class="small muted">Other evaluators join with this PIN on their own phone or laptop. Every evaluator gets the same screens and controls.</p>
-      <div class="row"><div class="bigcode" style="font-size:1.9rem">${esc(S.evaluatorPin)}</div><button class="btn btn-sm btn-quiet" data-a="newPin">New PIN</button></div>
-      <button class="btn btn-sm" style="margin-top:.5rem" data-a="copy" data-link="eval">Copy evaluator link</button>
-      <div style="margin-top:.6rem"><div class="person"><span class="dot on"></span><span class="grow">${esc(S.instructorName)} <span class="xs muted">(created the session)</span></span></div>${(S.evaluators || []).map(e => `<div class="person"><span class="dot ${e.online ? 'on' : ''}"></span><span class="grow">${esc(e.name)}</span>${e.id !== S.me.id ? `<button class="btn btn-sm btn-quiet" data-a="removeEvaluator" data-id="${esc(e.id)}" aria-label="Remove">✕</button>` : '<span class="xs muted">you</span>'}</div>`).join('')}</div></section>
+    <section class="card"><h3>Evaluators</h3><p class="small muted">Other evaluators join with this code on their own phone or laptop. Anyone with it can change results, so send it privately. Never put it on the projector or in a class chat.</p>
+      <div class="eyebrow">Evaluator code</div><div class="row"><div class="bigcode evc">${esc(S.evaluatorPin)}</div>${S.me.isOwner ? '<button class="btn btn-sm btn-quiet" data-a="newPin">New code</button>' : ''}</div>
+      <button class="btn btn-sm" style="margin-top:.5rem" data-a="copy" data-link="evalinvite">Copy private evaluator invite</button>
+      <p class="hint">The invite link has the code built in. ${S.me.isOwner ? 'Removing an evaluator changes the code automatically.' : 'Only the evaluator who started the session can remove evaluators or change the code.'}</p>
+      <div style="margin-top:.6rem"><div class="person"><span class="dot on"></span><span class="grow">${esc(S.instructorName)} <span class="xs muted">(created the session)</span></span></div>${(S.evaluators || []).map(e => `<div class="person"><span class="dot ${e.online ? 'on' : ''}"></span><span class="grow">${esc(e.name)}</span>${e.id === S.me.id ? '<span class="xs muted">you</span>' : S.me.isOwner ? `<button class="btn btn-sm btn-quiet" data-a="removeEvaluator" data-id="${esc(e.id)}" aria-label="Remove ${esc(e.name)}">✕</button>` : ''}</div>`).join('')}</div></section>
   </div></div>`;
 }
 function showQR(fresh = false) {
@@ -492,7 +500,7 @@ function showQR(fresh = false) {
     <div class="qr-big">${qrSvg()}</div>
     <div class="row" style="justify-content:center;gap:1.2rem;margin-top:.4rem"><div><div class="eyebrow">Session code</div><div class="bigcode" style="font-size:2.6rem">${esc(S.code)}</div></div><div><div class="eyebrow">Joined</div><div class="bigcode" style="font-size:2.6rem;letter-spacing:0" id="qr-joined">${S.participants.length}</div></div></div>
     <div class="linkbox" style="margin:.5rem auto;max-width:420px">${esc(joinUrl())}</div>
-    <p class="small muted">Put this on the projector. The count goes up as people join. The evaluator PIN is not shown here, so it stays private.</p>
+    <p class="small muted">Put this on the projector. The count goes up as people join. The evaluator code is never shown here, so it stays private.</p>
     <div class="row" style="margin-top:.6rem"><button class="btn grow" data-a="copy" data-link="join">Copy link</button><button class="btn btn-primary grow" data-a="close">${fresh ? 'Done, go to Set up' : 'Close'}</button></div></div>`, { center: true });
 }
 
@@ -584,9 +592,9 @@ function viewObserve() {
   <div class="cols cols-main"><div class="stack">
     <div class="target-switch"><button class="${!support ? 'on' : ''}" data-a="target" data-v="lead"><small>★ Lead · scored</small><b>${esc(r.leadName || 'Not chosen yet')}</b></button><button class="support ${support ? 'on' : ''}" data-a="target" data-v="support"><small>◇ Support</small><b>${esc(r.supportName || 'Not chosen yet')}</b></button></div>
     ${incs.length && !support ? `<section><h3 style="margin-bottom:.5rem">Cards to rate (${incs.length})</h3>${incs.map(i => rateBlock(i, r.index)).join('')}</section>` : ''}
-    <div class="quick-actions"><button class="btn btn-lg flagbtn" data-a="flag">⚑ Flag this moment</button><button class="btn btn-lg" data-a="note">✎ Write a note</button></div>
+    <div class="quick-actions"><div role="button" tabindex="0" class="btn btn-lg flagbtn" data-a="flag">${HAPT}⚑ Flag this moment</div><button class="btn btn-lg" data-a="note">✎ Write a note</button></div>
     <section class="card card-tight"><div class="pills">${['all', ...areas].map(a => `<button class="${(tagFilter === a || (a === 'all' && !areas.includes(tagFilter))) ? 'on' : ''}" data-a="tagfilter" data-v="${esc(a)}">${esc(a === 'all' ? 'All' : AREA_SHORT[a] || a)}</button>`).join('')}</div>
-      ${shown.map(a => `<div class="tag-group"><h4>${esc(a)}</h4><div class="tags">${tags.filter(t => t.competency === a).map(t => `<button class="tag ${t.polarity === '+' ? 'plus' : 'minus'}" data-a="tag" data-id="${esc(t.id)}"><span class="pm" aria-label="${t.polarity === '+' ? 'strength' : 'to improve'}">${t.polarity === '+' ? '+' : '−'}</span><span>${esc(t.short)}</span>${counts[t.id] ? `<span class="cnt">${counts[t.id]}</span>` : ''}</button>`).join('')}</div></div>`).join('')}
+      ${shown.map(a => `<div class="tag-group"><h4>${esc(a)}</h4><div class="tags">${tags.filter(t => t.competency === a).map(t => `<div role="button" tabindex="0" class="tag ${t.polarity === '+' ? 'plus' : 'minus'}" data-a="tag" data-id="${esc(t.id)}">${HAPT}<span class="pm" aria-label="${t.polarity === '+' ? 'strength' : 'to improve'}">${t.polarity === '+' ? '+' : '−'}</span><span>${esc(t.short)}</span>${counts[t.id] ? `<span class="cnt">${counts[t.id]}</span>` : ''}</div>`).join('')}</div></div>`).join('')}
     </section>
   </div><div class="stack">
     <section class="card"><div class="card-head"><h3>Log</h3><span>${chip(r.observations.length + ' entries', 'info')} ${flaggedN ? chip('⚑ ' + flaggedN + ' flagged', 'warn') : ''}</span></div>
@@ -673,7 +681,8 @@ function viewReview() {
     <section class="card"><div class="card-head"><h3>Support Trainer feedback</h3><button class="btn btn-sm" data-a="draft" data-v="support" data-round="${idx}">✨ Draft</button></div><p class="small muted">Developmental only. Not scored.</p>
       <textarea data-draft="supportNotes" data-round="${idx}" style="min-height:140px">${esc(d.supportNotes)}</textarea>
       ${supObs.length ? `<details style="margin-top:.4rem"><summary class="small">${supObs.length} support note${supObs.length > 1 ? 's' : ''}</summary>${supObs.map(o => obsRow(o, idx)).join('')}</details>` : ''}</section>
-    <section class="card"><h3>Outcome</h3><p class="small muted">Your decision as the assessor.</p>${seg('decision', OUTCOMES.map(([v, l]) => [v, l, v === 'competent' ? 'good' : v === 'not-yet-competent' ? 'bad' : '']), d.decision, `data-round="${idx}"`)}</section>
+    <section class="card"><h3>Outcome</h3><p class="small muted">Your decision as the assessor.</p>${seg('decision', OUTCOMES.map(([v, l]) => [v, l, v === 'competent' ? 'good' : v === 'not-yet-competent' ? 'bad' : '']), d.decision, `data-round="${idx}"`)}
+      ${(r.assessLog || []).length ? `<details style="margin-top:.6rem"><summary class="small">Change history (${r.assessLog.length} save${r.assessLog.length > 1 ? 's' : ''})</summary><div class="log">${r.assessLog.slice().reverse().map(x => `<div>${new Date(x.at).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · <b>${esc(x.by)}</b> · ${esc({ pending: 'Not decided', competent: 'Competent', 'not-yet-competent': 'Not yet competent' }[x.decision] || x.decision)}</div>`).join('')}</div></details>` : ''}</section>
     <section class="card"><details><summary>All notes for this round (${r.observations.length})</summary>${r.observations.slice().sort((a, b) => (a.elapsed ?? 1e12) - (b.elapsed ?? 1e12)).map(o => obsRow(o, idx)).join('') || '<p class="muted">None.</p>'}<button class="btn btn-sm" style="margin-top:.5rem" data-a="note-after" data-round="${idx}">+ Add a note</button></details></section>
   </div></div>
   <div class="savebar"><span class="grow">${d.dirty ? '● Unsaved changes on this device' : '✓ All changes saved'}</span><button class="btn ${d.dirty ? 'btn-primary' : ''}" data-a="saveAssess" data-round="${idx}">Save</button></div>`;
@@ -782,7 +791,7 @@ document.addEventListener('click', async e => {
     case 'leave-now': signOut(true); return;
     case 'undo': { const u = lastToastUndo; toastEl.className = 'toast'; if (u) await u(); return; }
     case 'nav': view = el.dataset.v; if (view === 'review') reviewIndex = null; render(true); window.scrollTo(0, 0); return;
-    case 'copy': { const link = joinUrl(el.dataset.link === 'eval' ? 'eval' : 'join'); try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } return; }
+    case 'copy': { const link = el.dataset.link === 'evalinvite' ? `${joinUrl('eval')}#k=${S.evaluatorPin}` : joinUrl('join'); try { await navigator.clipboard.writeText(link); toast('Link copied'); } catch { toast(link); } return; }
     case 'showQR': showQR(); return;
     case 'sendfilter': sendFilter = el.dataset.v; render(true); return;
     case 'openSession': { try { await getStore(); startSession({ code: el.dataset.v, kind: 'staff' }); } catch (err) { toast(err.message, true); } return; }
@@ -796,8 +805,8 @@ document.addEventListener('click', async e => {
     case 'planDefault': return cmd('planDefault', {}, 'New timeline made');
     case 'removePlan': return cmd('removePlan', { planId: id });
     case 'removeParticipant': if (await confirmBox('Remove this person? Role cards will need to be dealt again.', 'Remove', true)) cmd('removeParticipant', { participantId: id }); return;
-    case 'removeEvaluator': if (await confirmBox('Remove this evaluator?', 'Remove', true)) cmd('removeEvaluator', { evaluatorId: id }); return;
-    case 'newPin': if (await confirmBox('Make a new evaluator PIN? The old one stops working for new sign-ins.', 'New PIN')) cmd('newPin', {}, 'New PIN ready'); return;
+    case 'removeEvaluator': if (await confirmBox('Remove this evaluator? They lose access straight away, and the evaluator code changes so they cannot rejoin.', 'Remove', true)) cmd('removeEvaluator', { evaluatorId: id }, 'Removed. New evaluator code made.'); return;
+    case 'newPin': if (await confirmBox('Make a new evaluator code? Evaluators already in stay in. The old code stops working for anyone new.', 'New code')) cmd('newPin', {}, 'New evaluator code ready'); return;
     case 'start': { unlockAlerts(); const ok = await cmd('start', {}, 'Round started'); if (ok) { view = 'run'; render(true); window.scrollTo(0, 0); } return; }
     case 'pause': return cmd('pause');
     case 'resume': return cmd('resume');
@@ -808,7 +817,7 @@ document.addEventListener('click', async e => {
     case 'target': evalTarget = el.dataset.v; tagFilter = 'all'; render(true); return;
     case 'tag': {
       el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-      if (navigator.vibrate && prefs.vibrate) try { navigator.vibrate(30); } catch {}
+      tapBuzz();
       try {
         if (lastLogged && lastLogged.bareFlag && Date.now() - lastLogged.at < 45000 && S.round.observations.some(o => o.id === lastLogged.id)) {
           await sess.command({ action: 'editObservation', id: lastLogged.id, tagId: id });
@@ -821,7 +830,7 @@ document.addEventListener('click', async e => {
       } catch (err) { toast(err.message, true); }
       return;
     }
-    case 'flag': try { const res = await sess.command({ action: 'observe', flagged: true, target: evalTarget }); lastLogged = { id: res.observationId, at: Date.now(), bareFlag: true }; render(true); } catch (err) { toast(err.message, true); } return;
+    case 'flag': tapBuzz(); try { const res = await sess.command({ action: 'observe', flagged: true, target: evalTarget }); lastLogged = { id: res.observationId, at: Date.now(), bareFlag: true }; render(true); } catch (err) { toast(err.message, true); } return;
     case 'note': noteSheet(null); return;
     case 'note-after': noteSheet(null, ri); return;
     case 'editObs': { const r = ri && ri !== S.round.index ? archived?.find(x => x.index === ri) : S.round; const o = r?.observations.find(x => x.id === id); if (o) noteSheet(o, ri); return; }
@@ -852,10 +861,10 @@ document.addEventListener('click', async e => {
     case 'report': return printReport();
     case 'export': return download(el.dataset.v);
     // participant cards
-    case 'flip': { const now = !el.classList.contains('is-flipped'); el.classList.toggle('is-flipped', now); setFlipped(id, now); unlockAlerts(); setTimeout(() => render(true), 760); return; }
+    case 'flip': { tapBuzz(); const now = !el.classList.contains('is-flipped'); el.classList.toggle('is-flipped', now); setFlipped(id, now); unlockAlerts(); setTimeout(() => render(true), 760); return; }
     case 'flip-new': {
       if (el.classList.contains('is-flipped')) return;
-      el.classList.remove('deal'); el.classList.add('is-flipped'); unlockAlerts(); setFlipped(id, true);
+      tapBuzz(); el.classList.remove('deal'); el.classList.add('is-flipped'); unlockAlerts(); setFlipped(id, true);
       sess.acknowledge(id).catch(err => toast(err.message, true));
       const hint = document.getElementById('felt-hint');
       if (hint) hint.outerHTML = `<button class="btn btn-primary btn-lg" data-a="felt-close" style="width:min(84vw,340px)">Got it, I'll do it now</button>`;
@@ -891,6 +900,9 @@ async function onSeg(btn) {
   }
   if (name.startsWith('flagpol-')) { markOn(); btn.classList.add(v === '+' ? 'good' : 'warn'); }
 }
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('[role="button"][data-a]')) { e.preventDefault(); e.target.click(); }
+});
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.dataset.draft) { const r = roundForReview(); if (r) { setDraft(r, { [t.dataset.draft]: t.value }); const sb = document.querySelector('.savebar .grow'); if (sb) sb.textContent = '● Unsaved changes on this device'; } }

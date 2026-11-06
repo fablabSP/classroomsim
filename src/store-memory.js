@@ -17,24 +17,35 @@ const changedKeys = (a, b) => [...new Set([...Object.keys(a || {}), ...Object.ke
 export function allowed(op, path, uid, before, after, get, getAfter) {
   if (!uid) return false;
   const seg = path.split('/');
+  if (seg[0] === 'config') return false; // course settings: never readable or writable from the app
   if (seg[0] !== 'sessions') return false;
   const code = seg[1];
   const isStaff = () => !!get(`sessions/${code}/staff/${uid}`);
   if (seg.length === 2) {
     if (op === 'read') return true;
-    if (op === 'create') return after.ownerUid === uid && /^[A-Z2-9]{6}$/.test(code) && keysOnly(after, ['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round']);
-    if (op === 'update') return isStaff() && after.ownerUid === before.ownerUid;
+    if (op === 'create') {
+      const cfg = get('config/access');
+      const passOk = !cfg || !cfg.startCode || getAfter(`sessions/${code}/proof/${uid}`)?.key === cfg.startCode;
+      return passOk && after.ownerUid === uid && /^[A-Z2-9]{6}$/.test(code) && keysOnly(after, ['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round']);
+    }
+    if (op === 'update') return isStaff() && after.ownerUid === before.ownerUid && changedKeys(before, after).every(k => ['round', 'updatedAt'].includes(k));
     return before.ownerUid === uid;
   }
   if (seg.length !== 4) return false;
   const sub = seg[2], id = seg[3];
   const ownerAfter = () => getAfter(`sessions/${code}`)?.ownerUid === uid;
+  const isOwner = () => get(`sessions/${code}`)?.ownerUid === uid;
+  const smallMap = v => v == null || (typeof v === 'object' && Object.keys(v).length <= 60);
   switch (sub) {
+    case 'proof':
+      return op === 'create' && id === uid && keysOnly(after, ['key']);
     case 'secret':
       if (op === 'create') return ownerAfter();
-      return op !== 'delete' && isStaff();
+      if (op === 'read') return isStaff();
+      return op === 'update' && isOwner();
     case 'staff':
-      if (op === 'read' || op === 'delete') return isStaff();
+      if (op === 'read') return isStaff();
+      if (op === 'delete') return id === uid || isOwner();
       if (op === 'create') return id === uid && typeof after.name === 'string' && after.name.length <= 64 && keysOnly(after, ['name', 'joinedAt', 'seenAt', 'pin', 'owner'])
         && (ownerAfter() || (after.pin != null && after.pin === get(`sessions/${code}/secret/pin`)?.pin));
       return id === uid && changedKeys(before, after).every(k => ['seenAt', 'name'].includes(k));
@@ -45,8 +56,8 @@ export function allowed(op, path, uid, before, after, get, getAfter) {
       return isStaff();
     case 'people':
       if (op === 'read') return id === uid || isStaff();
-      if (op === 'create') return id === uid && keysOnly(after, ['name', 'joinedAt', 'seenAt', 'acks', 'approached']) && typeof after.name === 'string' && after.name.length >= 2 && after.name.length <= 64;
-      if (op === 'update') return id === uid && changedKeys(before, after).every(k => ['name', 'seenAt', 'acks', 'approached'].includes(k));
+      if (op === 'create') return id === uid && keysOnly(after, ['name', 'joinedAt', 'seenAt', 'acks', 'approached']) && typeof after.name === 'string' && after.name.length >= 2 && after.name.length <= 64 && smallMap(after.acks) && smallMap(after.approached);
+      if (op === 'update') return id === uid && changedKeys(before, after).every(k => ['name', 'seenAt', 'acks', 'approached'].includes(k)) && typeof after.name === 'string' && after.name.length >= 2 && after.name.length <= 64 && smallMap(after.acks) && smallMap(after.approached);
       return id === uid || isStaff();
     default: return false;
   }

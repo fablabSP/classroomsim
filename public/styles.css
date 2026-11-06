@@ -390,3 +390,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .sess-row:last-child { border-bottom: 0; }
 .sess-row .grow b { display: block; font-family: var(--display); line-height: 1.25; }
 .codechip { display: inline-block; font-family: var(--display); font-weight: 800; letter-spacing: .08em; font-size: .78rem; background: var(--sun-2); border: 1.5px solid var(--ink); border-radius: 6px; padding: 0 .35rem; margin-right: .2rem; color: var(--ink); }
+.bigcode.evc { font-size: 1.55rem; letter-spacing: .08em; }
+.code-input.evcode { letter-spacing: .12em; font-size: 1.25rem !important; }
+/* invisible native switch over tappable cards: a real tap on it gives an iPhone haptic tick */
+.pcard { position: relative; }
+.hapt { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: .011; z-index: 6; cursor: pointer; border-radius: inherit; }
+.tag, .flagbtn { position: relative; }
+.flagbtn { user-select: none; }

@@ -4,7 +4,7 @@ import SCENARIOS from './scenarios.js';
 import { QUICK_TAGS, RUBRIC, SUPPORT_AREA } from './quicktags.js';
 
 export { SCENARIOS, QUICK_TAGS, RUBRIC };
-export const VERSION = '3.1.0';
+export const VERSION = '3.2.0';
 export const COLORS = ['red', 'green', 'yellow', 'blue', 'black'];
 export const PHASES = ['explanation', 'discussion', 'independent', 'group', 'conclusion'];
 export const DURATIONS = [5, 10, 15, 20, 30];
@@ -28,7 +28,11 @@ export function newId() {
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 export function newCode() { let c = ''; for (let i = 0; i < 6; i++) c += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]; return c; }
-function newPin() { return String(100000 + randomInt(900000)); }
+// Evaluator code: 10 characters from an alphabet with no look-alikes, shown as XXXX-XXXX-XX.
+// About 8 x 10^14 combinations, so it cannot be guessed by trying them all.
+export function newEvaluatorCode() { let c = ''; for (let i = 0; i < 10; i++) c += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]; return formatEvaluatorCode(c); }
+export function formatEvaluatorCode(raw) { const c = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return c.length === 10 ? `${c.slice(0, 4)}-${c.slice(4, 8)}-${c.slice(8)}` : c; }
+const newPin = newEvaluatorCode;
 const str = (v, max = 200) => String(v ?? '').trim().slice(0, max);
 function shuffle(xs) { for (let i = xs.length - 1; i > 0; i--) { const j = randomInt(i + 1); [xs[i], xs[j]] = [xs[j], xs[i]]; } return xs; }
 export function catalog(s) { return [...(s.customScenarios || []).slice().reverse(), ...SCENARIOS]; }
@@ -335,6 +339,9 @@ export function applyEval(s, r, who, b, now) {
     r.scores = Object.fromEntries(RUBRIC.map(k => [k, String(scores[k] ?? 'not-observed')]));
     r.leadNotes = str(b.leadNotes, 5000); r.supportNotes = str(b.supportNotes, 5000); r.decision = b.decision;
     r.savedBy = by; r.savedAt = now;
+    // Change history: every save is kept, so any later change to a result is visible.
+    (r.assessLog ||= []).push({ by, at: now, decision: r.decision, scores: { ...r.scores } });
+    if (r.assessLog.length > 50) r.assessLog = r.assessLog.slice(-50);
     if (r === s.round) log(s, r, 'assessment-saved', 'Assessment saved by ' + by, now);
     return {};
   }
@@ -418,8 +425,14 @@ export function applyCommand(s, who, b, now) {
     }
     case 'setPerColour': { lobby(); const v = Number(b.perColour); if (!PER_COLOUR.includes(v)) fail('Choose 1, 2 or 3.'); r.perColour = v; if (r.assignedAt) assign(s, now); break; }
     case 'setAutoPrompts': lobby(); r.autoPrompts = Boolean(b.on); s.autoPrompts = r.autoPrompts; log(s, r, 'prompts-mode', r.autoPrompts ? 'Automatic timeline on' : 'Manual sending only', now); break;
-    case 'removeEvaluator': s.evaluators = s.evaluators.filter(e => e.id !== b.evaluatorId); break;
-    case 'newPin': s.evaluatorPin = newPin(); break;
+    case 'removeEvaluator': {
+      if (!who.isOwner) fail('Only the evaluator who started this session can remove evaluators.', 403);
+      const gone = s.evaluators.find(e => e.id === b.evaluatorId); if (!gone) fail('Evaluator not found.');
+      s.evaluators = s.evaluators.filter(e => e.id !== b.evaluatorId);
+      s.evaluatorPin = newPin(); // so they cannot rejoin with the old code
+      log(s, r, 'evaluator-removed', gone.name + ' removed; evaluator code changed', now); break;
+    }
+    case 'newPin': if (!who.isOwner) fail('Only the evaluator who started this session can change the code.', 403); s.evaluatorPin = newPin(); log(s, r, 'code-changed', 'Evaluator code changed', now); break;
     default: fail('Unknown command.');
   }
   return out;

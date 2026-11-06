@@ -42,7 +42,7 @@ test('rules: participants cannot read the engine, other cards, or staff data', a
 test('staff join needs the PIN; staff get the same controls', async () => {
   const { hub, code, staff, people } = await setup(6);
   const ev = new MemoryStore(hub, 'u-eva');
-  await assert.rejects(E.joinStaff(ev, code, 'Eva', '123'), /PIN/);
+  await assert.rejects(E.joinStaff(ev, code, 'Eva', '123'), /evaluator code is not correct/);
   await E.joinStaff(ev, code, 'Eva', staff.state.evaluatorPin);
   const evs = new E.StaffSession(ev, code).start();
   await until(() => evs.state?.evaluators.some(e => e.id === 'u-eva'));
@@ -113,4 +113,53 @@ test('late joiner waits during a round and is let in at the next round; archived
   await until(() => staff.state.archivedRounds[0].decision === 'competent');
   assert.equal(staff.state.archivedRounds[0].decision, 'competent');
   staff.stop();
+});
+
+test('security: start passcode, long evaluator code, owner-only controls, removal locks out, participant limits, change history', async () => {
+  const hub = new MemoryHub({ rules: true });
+  hub.docs.set('config/access', { data: { startCode: 'FABLAB-2026' }, version: 1 }); // set by the admin in the console
+  const owner = new MemoryStore(hub, 'u-owner');
+  await assert.rejects(E.createSession(owner, { instructorName: 'Louis' }), /start passcode is not correct/);
+  await assert.rejects(E.createSession(owner, { instructorName: 'Louis', startPasscode: 'wrong' }), /start passcode is not correct/);
+  const code = await E.createSession(owner, { instructorName: 'Louis', startPasscode: 'FABLAB-2026' });
+  const staff = new E.StaffSession(owner, code).start();
+  await until(() => staff.state);
+  const evCode = staff.state.evaluatorPin;
+  assert.match(evCode, /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{2}$/, 'evaluator code is 10 characters');
+  // a participant cannot read course settings or the proof, or flood their own doc
+  const p = new MemoryStore(hub, 'u-p'); await E.joinParticipant(p, code, 'Pat');
+  await assert.rejects(p.getDoc('config/access'), /permission/i);
+  await assert.rejects(p.getDoc(`sessions/${code}/proof/u-owner`), /permission/i);
+  await assert.rejects(p.setDoc(`sessions/${code}/proof/u-p`, { key: 'x', extra: 1 }), /permission/i);
+  const flood = Object.fromEntries(Array.from({ length: 61 }, (_, i) => ['x' + i, 1]));
+  await assert.rejects(p.updateDoc(`sessions/${code}/people/u-p`, { acks: flood }), /permission/i);
+  await assert.rejects(p.updateDoc(`sessions/${code}`, { round: { status: 'ended' } }), /permission/i);
+  // guessing: lower-case and missing dashes still work for the real code, a near miss does not
+  const ev = new MemoryStore(hub, 'u-ev');
+  await assert.rejects(E.joinStaff(ev, code, 'Eva', evCode.slice(0, -1) + (evCode.endsWith('A') ? 'B' : 'A')), /not correct/);
+  await E.joinStaff(ev, code, 'Eva', evCode.replace(/-/g, '').toLowerCase());
+  const evs = new E.StaffSession(ev, code).start();
+  await until(() => evs.state?.evaluators.some(e => e.id === 'u-ev'));
+  // a guest evaluator cannot change the code or remove the owner
+  await assert.rejects(evs.command({ action: 'newPin' }), /Only the evaluator who started/);
+  await assert.rejects(ev.updateDoc(`sessions/${code}/secret/pin`, { pin: 'HACK' }), /permission/i);
+  await assert.rejects(ev.deleteDoc(`sessions/${code}/staff/u-owner`), /permission/i);
+  // owner removes the evaluator: they are locked out and the old code stops working
+  await staff.command({ action: 'removeEvaluator', evaluatorId: 'u-ev' });
+  await until(() => staff.state.evaluatorPin !== evCode);
+  assert.notEqual(staff.state.evaluatorPin, evCode, 'code changed on removal');
+  await assert.rejects(ev.getDoc(`sessions/${code}/engine/state`), /permission/i);
+  const ev2 = new MemoryStore(hub, 'u-ev2');
+  await assert.rejects(E.joinStaff(ev2, code, 'Again', evCode), /not correct/);
+  // every assessment save is kept
+  await staff.command({ action: 'assess', scores: {}, leadNotes: '', supportNotes: '', decision: 'competent' });
+  await staff.command({ action: 'assess', scores: {}, leadNotes: '', supportNotes: '', decision: 'not-yet-competent' });
+  await until(() => staff.state.round.assessLog?.length === 2);
+  assert.deepEqual(staff.state.round.assessLog.map(x => x.decision), ['competent', 'not-yet-competent']);
+  staff.stop(); evs.stop();
+});
+
+test('without a start passcode set, anyone can start a session', async () => {
+  const hub = new MemoryHub({ rules: true });
+  assert.match(await E.createSession(new MemoryStore(hub, 'u-a'), { instructorName: 'A' }), /^[A-Z2-9]{6}$/);
 });

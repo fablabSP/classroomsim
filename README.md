@@ -3,16 +3,21 @@
 Classroom role-play practice and Lead Trainer assessment for the CET *Leading and Assessing AI-Enabled Learning Experiences* course.
 
 There are two interfaces:
-- **Evaluator.** Whoever starts a session is the first evaluator. Other evaluators join with the 6-digit evaluator PIN. Every evaluator gets the same screens: set up, run the round, deal cards, observe, review and export.
+- **Evaluator.** Whoever starts a session is the first evaluator. Other evaluators join with the 10-character evaluator code. Every evaluator gets the same screens: set up, run the round, deal cards, observe, review and export.
 - **Participant.** People join on their phones. Each gets a secret **role card**, dealt face down, that they tap to flip open. During the round, **scenario cards** are dealt to them face down too. Flipping a card open tells the evaluators "I've read it".
 
 It is a web app **hosted on GitHub Pages**, built and published by GitHub itself. Nothing runs on your computer, and nothing is installed on phones: everyone just opens the link (or scans the QR code) in their normal web browser. **Firebase** (free Spark plan, no credit card) is used only as the real-time database, so cards reach phones instantly.
 
 ---
 
+## What's new in 3.2
+
+- **Evaluator access locked down.** The evaluator code is now 10 characters (about 800 trillion combinations) instead of a 6-digit PIN, so it cannot be guessed by trying them all. Optional course-wide **start passcode** so only your evaluators can start sessions. Only the evaluator who started a session can change the code or remove evaluators, and removing someone changes the code automatically. Every assessment save is kept in a **change history**. See [Security](#security).
+- **Tap haptics on iPhone.** Flipping a card and tapping quick-log buttons gives a haptic tick on iPhones (and a short vibration on Android). See [Phone alerts and vibration](#phone-alerts-and-vibration).
+
 ## What's new in 3.1
 
-- **Join QR pops up as soon as a session is created**, ready for the projector, with a live "joined" count. A **QR** button in the top bar brings it back from any screen. The evaluator PIN is never shown on the projector.
+- **Join QR pops up as soon as a session is created**, ready for the projector, with a live "joined" count. A **QR** button in the top bar brings it back from any screen. The evaluator code is never shown on the projector.
 - **Big classes:** deal **1, 2 or 3 of each colour** role card (up to 15 colour cards). The app suggests a number from the class size. Up to **80 participants** per session.
 - **Several classes:** each session has its own code and runs independently. Evaluators see **"Your sessions on this device"** and can switch between classes, or start another, without closing anything.
 - **Faster and lighter:** a whole class scanning at once is let in as one batch. One evaluator device does the background work, with the others as automatic backup. Starting or pausing a round updates one shared clock instead of every phone's card.
@@ -44,7 +49,7 @@ All earlier features are kept: guided setup with "What to do now", automatic or 
             The web page itself comes from GitHub Pages: https://<you>.github.io/<repo>/
 ```
 
-- `firestore.rules` makes sure a participant can only read **their own** cards. Only evaluators can read the full session or the PIN.
+- `firestore.rules` makes sure a participant can only read **their own** cards. Only evaluators can read the full session or the evaluator code.
 - The free Firebase plan has no server code, so the evaluators' browsers run the session. Every change is a Firestore **transaction**, so two evaluators tapping at once never overwrite each other.
 - **Keep at least one evaluator screen open during a round.** Timed scenario cards are dealt by whichever evaluator device is open. If all evaluator screens close, the timeline waits until one comes back (the timer still counts).
 - Someone who joins mid-round waits and is let in when the next round starts.
@@ -63,6 +68,7 @@ All earlier features are kept: guided setup with "What to do now", automatic or 
 3. Still in Firestore, open the **Rules** tab. Delete what is there, paste in the whole of `firestore.rules` from this folder, then click **Publish**.
 4. **Build → Authentication → Get started → Sign-in method → Anonymous → Enable → Save**.
 5. **Authentication → Settings → Authorized domains → Add domain** → `<your-github-username>.github.io`.
+5b. **Recommended: set a start passcode** so only your evaluators can start sessions. In **Firestore Database → Data**: **Start collection** `config` → Document ID `access` → add a field `startCode` (string) = a passcode you choose, e.g. `FabLab-Eval-2026`. Give it only to your evaluators. To change it later, edit that field. To turn it off, delete the `access` document.
 6. **Project settings** (gear icon) → **Your apps** → click the web icon `</>` → give it a nickname → **Register app**. Keep the `firebaseConfig` box open: you need it in Part B.
 
 ### Part B: GitHub (the website)
@@ -83,7 +89,7 @@ That's it. Every later change you commit (for example new scenario cards in `src
 ## Running a class
 1. Open the link on the laptop or tablet. Choose **Evaluator → Start a session**. The join QR pops up straight away: put it on the projector and watch the joined count go up. (The **QR** button in the top bar shows it again any time.)
 2. Participants scan, type their name, and tap **Turn on alerts**.
-3. Other evaluators: **Evaluator → Join with evaluator PIN** (the PIN is on the Set up screen).
+3. Other evaluators: send them **Copy private evaluator invite** (Set up → Evaluators), or they choose **Evaluator → Join with evaluator code** and type the 10-character code.
 4. Follow **What to do now**: choose trainers → pick **how many of each colour** (the app suggests one for your class size) → **Deal role cards** → choose automatic or manual dealing → **Start**.
    Running another class? ⚙ Settings → **Switch to another session or start a new one**. The first class keeps running.
 5. **Run:** set the lesson moment, pick a learner, pick a card, check the preview, **Deal this card**. That phone shakes and the card lands face down.
@@ -91,7 +97,7 @@ That's it. Every later change you commit (for example new scenario cards in `src
 7. **Review:** fill flagged moments → **Draft from notes** → edit → scores and outcome → **Save**. Then **Next round** (trainers rotate).
 8. **Records:** printable report and CSV/JSON export.
 
-**Phone alerts:** Android vibrates fully. iPhones don't let websites vibrate, so they get a light tap on iOS 18, a chime, a screen flash and the full-screen card table. Everyone taps **Turn on alerts** once and keeps the page open.
+**Phone alerts:** see [Phone alerts and vibration](#phone-alerts-and-vibration).
 
 ---
 
@@ -113,6 +119,33 @@ The rubric areas and the 1–4 scale are a **draft**. Map them to the course's a
 ## Testing
 GitHub runs `npm test` (the logic and engine tests) on every commit and won't publish if they fail. Those tests use an in-memory database that enforces the same rules as `firestore.rules`. If you ever want to test the real rules file against Google's emulator (on a computer with Node.js and Java): `npm install && npm run test:rules`.
 
+## Security
+
+**What participants can and cannot do.** The database rules are the real lock, because they run on Google's servers, not in the app.
+- A participant can only write to **their own** join record (name, "I flipped it", "a trainer came to me"). Even those taps only count for cards dealt to them, and the record is size-limited so it can't be flooded.
+- A participant **cannot read** anyone else's cards, the session's results, notes, scores, the evaluator code or the course settings, and **cannot write** to any of them. This is covered by the automated tests (`tests/engine.test.js`) and the emulator test (`tests/rules.test.js`).
+- So the only way to change results is to become an evaluator. That is guarded by:
+
+| Lock | What it stops |
+|---|---|
+| **10-character evaluator code** (`XXXX-XXXX-XX`) | Guessing. A 6-digit PIN could be brute-forced by a script; this cannot. |
+| **Start passcode** (optional, set in `config/access`) | Participants starting their own "evaluator" sessions. |
+| **Owner-only controls** | Only the evaluator who started the session can change the code or remove evaluators (enforced by the rules). |
+| **Removing an evaluator changes the code** | A removed person rejoining with the old code. They are also signed out of that session immediately. |
+| **Change history** on every assessment save | Results being quietly changed: every save shows who, when and the outcome (Review → Outcome → Change history, and in the exports). |
+
+**Good practice:** send the evaluator code privately (use **Copy private evaluator invite**). Never show it on the projector (the join QR screen never does) or post it in a class chat. If it leaks, the session owner taps **New code**.
+
+**Limits to know about.** Sign-in is anonymous (no school accounts), so anyone who *has* the evaluator code is trusted as an evaluator, and evaluators share one session record, so one evaluator could in principle edit another's notes. The change history makes that visible. For formal, high-stakes assessment, the next step up would be signing evaluators in with school Microsoft or Google accounts. Firebase supports that, and I can add it if you want it.
+
+## Phone alerts and vibration
+
+- **Android:** full vibration for new cards, plus short taps when buttons are pressed.
+- **iPhone:** Apple doesn't let websites vibrate. The [web-haptics](https://github.com/lochie/web-haptics) library and others use a trick: tapping a hidden iOS "switch" gives a haptic tick. Since **iOS 26.5**, Apple only gives that tick for a real finger tap. A tap made by code no longer counts ([ios-haptics PR #13](https://github.com/tijnjh/ios-haptics/pull/13), [haptics.kushagragolash.dev](https://haptics.kushagragolash.dev/)). So no website can buzz an iPhone when a card *arrives*. ClassroomSim therefore:
+  - puts an invisible switch over every card and quick-log button, so **real taps** (flipping a card open, logging an observation) give a tick on iPhones with iOS 17.4 or later;
+  - alerts iPhones about new cards with a **chime, a screen flash and the full-screen card table**. Everyone taps **Turn on alerts** once and keeps the page open.
+- The tick is a device feature I could not test here. Try it on an iPhone (Settings → Sounds & Haptics → System Haptics must be on).
+
 ## Rules from bugs we fixed
 - **Inserting code into a page with `String.replace`:** always pass a function (`.replace(x, () => code)`). A plain string treats `$&`, `$1` etc. inside the code as patterns and silently corrupts it. (This broke the QR code in the demo build.)
 - **Helpers used at start-up must be declared above their first use.** A `const` read before its line throws, and if that throw is inside a `try` it fails silently. (This once made the app ignore a saved sign-in.)
@@ -122,5 +155,5 @@ GitHub runs `npm test` (the logic and engine tests) on every commit and won't pu
 ## Privacy
 - No accounts. Firebase gives each device an anonymous ID.
 - Use first names or aliases, and don't enter sensitive personal data.
-- The evaluator PIN is the only gate for evaluator access. Use **New PIN** if it leaks.
+- See [Security](#security) for evaluator access.
 - There is no automatic clean-up on the free plan. Delete old sessions (`sessions/<CODE>`) in the Firestore console each term.

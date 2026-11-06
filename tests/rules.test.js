@@ -3,7 +3,7 @@
 import test, { before, after } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 
 let env;
 const CODE = 'ABC234', P = `sessions/${CODE}`;
@@ -12,7 +12,8 @@ before(async () => {
   const owner = env.authenticatedContext('owner').firestore();
   const b = writeBatch(owner);
   b.set(doc(owner, P), { ownerUid: 'owner', createdAt: 1, updatedAt: 1, cohort: 'C', lessonTopic: 'T' });
-  b.set(doc(owner, `${P}/secret/pin`), { pin: '123456' });
+  b.set(doc(owner, `${P}/proof/owner`), { key: '' });
+  b.set(doc(owner, `${P}/secret/pin`), { pin: 'ABCD-EFGH-JK' });
   b.set(doc(owner, `${P}/staff/owner`), { name: 'Louis', joinedAt: 1, owner: true });
   await assertSucceeds(b.commit());
   await assertSucceeds(setDoc(doc(owner, `${P}/engine/state`), { data: '{}', v: 1 }));
@@ -36,12 +37,27 @@ test('participant: own join doc and own cards only', async () => {
   await assertFails(setDoc(doc(p1, `${P}/views/p1`), { kind: 'hacked' }));
   await assertFails(getDoc(doc(p1, `${P}/engine/state`)));
   await assertFails(getDoc(doc(p1, `${P}/secret/pin`)));
+  await assertFails(getDoc(doc(p1, 'config/access')));
+  await assertFails(updateDoc(doc(p1, P), { round: { status: 'ended' } }));
+  const flood = Object.fromEntries(Array.from({ length: 61 }, (_, i) => ['x' + i, 1]));
+  await assertFails(updateDoc(doc(p1, `${P}/people/p1`), { acks: flood }));
+});
+test('start passcode, when set by the admin, is required to create a session', async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), 'config/access'), { startCode: 'FABLAB-2026' }));
+  const u = env.authenticatedContext('newowner').firestore();
+  const mk = key => { const b = writeBatch(u); b.set(doc(u, 'sessions/XYZ234/proof/newowner'), { key }); b.set(doc(u, 'sessions/XYZ234'), { ownerUid: 'newowner', createdAt: 1, updatedAt: 1, cohort: '', lessonTopic: '' }); return b.commit(); };
+  await assertFails(mk('wrong'));
+  await assertSucceeds(mk('FABLAB-2026'));
+  await env.withSecurityRulesDisabled(c => deleteDoc(doc(c.firestore(), 'config/access')));
 });
 test('staff join needs the PIN', async () => {
   const ev = env.authenticatedContext('ev').firestore();
-  await assertFails(setDoc(doc(ev, `${P}/staff/ev`), { name: 'Eva', pin: '000000' }));
-  await assertFails(setDoc(doc(ev, `${P}/staff/other`), { name: 'Eva', pin: '123456' }));
-  await assertSucceeds(setDoc(doc(ev, `${P}/staff/ev`), { name: 'Eva', pin: '123456', joinedAt: 1 }));
+  await assertFails(setDoc(doc(ev, `${P}/staff/ev`), { name: 'Eva', pin: 'ABCD-EFGH-JL' }));
+  await assertFails(setDoc(doc(ev, `${P}/staff/other`), { name: 'Eva', pin: 'ABCD-EFGH-JK' }));
+  await assertSucceeds(setDoc(doc(ev, `${P}/staff/ev`), { name: 'Eva', pin: 'ABCD-EFGH-JK', joinedAt: 1 }));
+  // a guest evaluator cannot change the code or remove the owner
+  await assertFails(updateDoc(doc(ev, `${P}/secret/pin`), { pin: 'HACK' }));
+  await assertFails(deleteDoc(doc(ev, `${P}/staff/owner`)));
   await assertSucceeds(getDoc(doc(ev, `${P}/engine/state`)));
   await assertSucceeds(setDoc(doc(ev, `${P}/views/p2`), { kind: 'participant', x: 1 }));
 });

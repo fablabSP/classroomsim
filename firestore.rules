@@ -9,25 +9,45 @@ service cloud.firestore {
     function isStaff(code) { return signedIn() && exists(/databases/$(db)/documents/sessions/$(code)/staff/$(me())); }
     function ownerAfter(code) { return getAfter(sessionPath(code)).data.ownerUid == me(); }
     function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function isOwner(code) { return signedIn() && get(sessionPath(code)).data.ownerUid == me(); }
+    function smallMap(m) { return m is map && m.size() <= 60; }
+    // Optional course-wide passcode for starting sessions: create config/access { startCode: "..." } in the console.
+    function startAllowed(code) {
+      return !exists(/databases/$(db)/documents/config/access)
+        || getAfter(/databases/$(db)/documents/sessions/$(code)/proof/$(me())).data.key
+           == get(/databases/$(db)/documents/config/access).data.startCode;
+    }
+
+    // Course settings: never readable or writable from the app (edit them in the Firebase console)
+    match /config/{doc} { allow read, write: if false; }
 
     match /sessions/{code} {
       allow read: if signedIn();
       allow create: if signedIn()
         && code.matches('^[A-Z2-9]{6}$')
         && request.resource.data.ownerUid == me()
-        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round']);
-      allow update: if isStaff(code) && request.resource.data.ownerUid == resource.data.ownerUid;
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'updatedAt', 'cohort', 'lessonTopic', 'round'])
+        && startAllowed(code);
+      allow update: if isStaff(code) && onlyChanged(['round', 'updatedAt']);
       allow delete: if signedIn() && resource.data.ownerUid == me();
 
-      // Staff PIN for evaluators
+      // Proof of the start passcode, written once when a session is created; nobody can read it
+      match /proof/{uid} {
+        allow create: if signedIn() && uid == me() && request.resource.data.keys().hasOnly(['key']);
+      }
+
+      // Evaluator code: readable by evaluators, changed only by the evaluator who started the session
       match /secret/{doc} {
-        allow read, update: if isStaff(code);
+        allow read: if isStaff(code);
+        allow update: if isOwner(code);
         allow create: if signedIn() && ownerAfter(code);
       }
 
-      // Staff members: the owner adds themself; anyone else needs the PIN
+      // Evaluators: the session owner adds themself; anyone else needs the evaluator code.
+      // Only the owner can remove an evaluator (evaluators can remove themselves).
       match /staff/{uid} {
-        allow read, delete: if isStaff(code);
+        allow read: if isStaff(code);
+        allow delete: if signedIn() && (uid == me() || isOwner(code));
         allow create: if signedIn() && uid == me()
           && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'pin', 'owner'])
           && request.resource.data.name is string && request.resource.data.name.size() <= 64
@@ -52,8 +72,12 @@ service cloud.firestore {
         allow create: if signedIn() && uid == me()
           && request.resource.data.keys().hasOnly(['name', 'joinedAt', 'seenAt', 'acks', 'approached'])
           && request.resource.data.name is string
-          && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64;
-        allow update: if signedIn() && uid == me() && onlyChanged(['name', 'seenAt', 'acks', 'approached']);
+          && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64
+          && smallMap(request.resource.data.acks) && smallMap(request.resource.data.approached);
+        allow update: if signedIn() && uid == me() && onlyChanged(['name', 'seenAt', 'acks', 'approached'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 64
+          && smallMap(request.resource.data.acks) && smallMap(request.resource.data.approached);
         allow delete: if signedIn() && (uid == me() || isStaff(code));
       }
     }
