@@ -1,6 +1,6 @@
 {
   "name": "classroomsim",
-  "version": "3.8.2",
+  "version": "3.8.3",
   "private": true,
   "type": "module",
   "description": "Classroom role-play practice and Lead Trainer assessment. Hosted on GitHub Pages, real-time data on Firebase (free Spark plan).",

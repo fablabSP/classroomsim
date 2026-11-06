@@ -207,15 +207,24 @@ details[open] > summary::before { content: "−"; }
 .c-red { --c: var(--r-red); } .c-green { --c: var(--r-green); } .c-yellow { --c: var(--r-yellow); } .c-blue { --c: var(--r-blue); } .c-black { --c: var(--r-black); } .c-normal { --c: var(--r-normal); } .c-lead { --c: var(--r-lead); } .c-support { --c: var(--r-support); }
 
 /* observe */
-.target-switch { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; }
-.target-switch button { min-height: 60px; border-radius: 12px; border: 2px solid var(--line); background: #fff; text-align: left; padding: .45rem .8rem; cursor: pointer; }
-.target-switch button small { display: block; color: var(--muted); font-size: .74rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.target-switch button b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--display); }
-.target-switch button.on { border-color: var(--ink); background: var(--blue-soft); box-shadow: var(--hs); }
-.target-switch button.on.support { background: #def3f0; }
+.target-label { font-family: var(--display); font-weight: 800; font-size: .85rem; color: var(--muted); margin-bottom: -.2rem; }
+/* Lead = blue + star, Support = green + diamond (same as their trainer cards). The one being noted is filled in. */
+.target-switch { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .6rem; }
+.target-switch button { --tc: #1557c9; --tsoft: #e6efff; position: relative; display: flex; align-items: center; gap: .6rem; min-height: 72px; border-radius: 14px; border: 2.5px solid var(--tc); border-left-width: 8px; background: var(--tsoft); color: var(--ink); text-align: left; padding: .5rem .7rem; cursor: pointer; opacity: .75; transition: transform .08s, opacity .15s; }
+.target-switch button.support { --tc: #16833f; --tsoft: #e3f6ea; }
+.target-switch .tbadge { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; background: #fff; color: var(--tc); border: 2.5px solid var(--tc); font-size: 1.1rem; font-weight: 900; }
+.target-switch .tt { min-width: 0; flex: 1; }
+.target-switch small { display: block; color: var(--tc); font-size: .72rem; font-weight: 900; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.target-switch b { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; line-height: 1.2; font-family: var(--display); font-size: 1.12rem; }
+@media (max-width: 420px) { .target-switch button { gap: .45rem; padding: .45rem .5rem; border-left-width: 5px; } .target-switch .tbadge { width: 28px; height: 28px; font-size: .95rem; } .target-switch b { font-size: 1.02rem; } .target-switch small { white-space: normal; line-height: 1.2; } }
+.target-switch button.on { opacity: 1; background: var(--tc); color: #fff; border-color: var(--ink); border-left-color: var(--ink); box-shadow: var(--hs-lg); transform: translateY(-1px); }
+.target-switch button.on small { color: rgba(255,255,255,.88); }
+.target-switch button.on .tbadge { border-color: var(--ink); }
+.target-switch .tick { position: absolute; top: -9px; right: -9px; width: 26px; height: 26px; border-radius: 50%; background: var(--sun); color: var(--ink); border: 2px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: .85rem; }
 .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .flagbtn { background: var(--sun-2); }
-.tag-group h4 { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: .9rem 0 .45rem; }
+.tag-group h4 { display: flex; align-items: center; gap: .5rem; font-family: var(--display); font-size: 1.12rem; font-weight: 900; color: var(--ink); margin: 1.2rem 0 .55rem; }
+.tag-group h4::before { content: ""; width: 6px; height: 1.15em; border-radius: 3px; background: var(--sun); border: 1.5px solid var(--ink); flex: none; }
 .tags { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .5rem; }
 /* Observe: two columns per area, to improve (left) and strengths (right) */
 .tagcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; align-items: start; }

@@ -10,6 +10,9 @@ It is a web app **hosted on GitHub Pages**, built and published by GitHub itself
 
 ---
 
+## What's new in 3.8.3
+- **Observe is easier to read:** bigger area titles, and the Lead / Support switch uses the trainer card colours (Lead blue ★, Support green ◇). The one you are noting for is filled in with a ✓; names wrap instead of being cut off.
+
 ## What's new in 3.8.2
 - **Colour-coded scenario cards:** the three parts are numbered steps in their own colour, so learners can find them at a glance: 1 Do this now (amber), 2 If a trainer comes to you, say (blue), 3 When they help you well (green).
 
