@@ -75,6 +75,18 @@ def emblem(im):
     return out, '#%02x%02x%02x' % bg[:3], '#%02x%02x%02x' % rim[:3]
 
 
+# Cards are shown at one standard shape (2:3). The trainer portraits are taller than that leaves
+# room for, so a band at the bottom of the picture (just above its frame line) is removed.
+TRIM = {'trainer-lead': (0.45, 0.637), 'trainer-support': (0.45, 0.637)}  # fractions of the trimmed height
+
+
+def remove_band(im, a, b):
+    h = im.size[1]; y0, y1 = round(h * a), round(h * b)
+    out = Image.new('RGBA', (im.size[0], h - (y1 - y0)))
+    out.paste(im.crop((0, 0, im.size[0], y0)), (0, 0)); out.paste(im.crop((0, y1, im.size[0], h)), (0, y0))
+    return out
+
+
 meta = {}
 for f in sorted(os.listdir(SRC)):
     if not f.endswith('.png'): continue
@@ -87,6 +99,7 @@ for f in sorted(os.listdir(SRC)):
         meta[name] = {'bg': bg, 'rim': rim, 'emblemAspect': round(em.size[0] / em.size[1], 3)}
     else:
         im = clear_surround(im)
+        if name in TRIM: im = remove_band(im, *TRIM[name])
         im = im.resize((WIDTH, round(WIDTH * im.size[1] / im.size[0])), Image.LANCZOS)
         t, b, l, r = panel(im); w, h = im.size
         im.save(os.path.join(OUT, name + '.webp'), quality=84)

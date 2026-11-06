@@ -260,7 +260,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 
 /* ---------- playing cards (participants, and previews for staff) ---------- */
 .deck { display: grid; justify-items: center; gap: 1.1rem; }
-.pcard { --w: min(84vw, 340px); width: var(--w); perspective: 1400px; cursor: pointer; border: 0; padding: 0; background: none; text-align: left; color: inherit; font: inherit; display: block; }
+.pcard { --w: min(84vw, 340px); --ch: calc(var(--w) * 1.5); /* every card is 2:3, like a playing card */ width: var(--w); perspective: 1400px; cursor: pointer; border: 0; padding: 0; background: none; text-align: left; color: inherit; font: inherit; display: block; }
 .pcard.static { cursor: default; }
 .pcard-inner { display: grid; transition: transform .75s cubic-bezier(.3, 1.35, .45, 1); transform-style: preserve-3d; }
 .pcard.is-flipped .pcard-inner { transform: rotateY(180deg); }
@@ -300,7 +300,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
    bottom slice = bottom of the panel + frame; the middle band (plain panel) stretches with the text. */
 .face.front.art { position: relative; isolation: isolate; overflow: visible; background: none; box-shadow: none; border-radius: 0;
   border-style: solid; border-color: transparent; border-width: calc(var(--w) * var(--bt)) 0 calc(var(--w) * var(--bb)) 0;
-  min-height: calc(var(--w) * var(--hr)); padding: 0 calc(var(--w) * var(--pr)) 0 calc(var(--w) * var(--pl)); }
+  height: var(--ch); min-height: 0; padding: 0 calc(var(--w) * var(--pr)) 0 calc(var(--w) * var(--pl));
+  font-size: calc(var(--w) * .052 * var(--fit, 1)); } /* text scales with the card: about 17.5px on a 340px card, shrunk to fit long cards */
 /* ::after = the artwork, ::before = a hard shadow in the card's shape. Both sit behind the text.
    (A filter on the face itself would flatten the 3D flip on iOS, so the shadow is its own layer.) */
 .face.front.art::before, .face.front.art::after { content: ""; position: absolute; pointer-events: none;
@@ -309,16 +310,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
   border-image-source: var(--art); border-image-slice: var(--st) 0 var(--sb) 0 fill; border-image-repeat: stretch; }
 .face.front.art::after { z-index: -1; }
 .face.front.art::before { z-index: -2; transform: translate(4px, 5px); filter: brightness(0); opacity: .8; }
-.face.front.art .cbody { padding: .1rem 0 .3rem; gap: .45rem; }
-.face.front.art .cbody .do { font-size: 1.02rem; line-height: 1.38; }
-.face.front.art .cbody p { font-size: .93rem; line-height: 1.42; }
-.face.front.art .ctitle { font-family: var(--display); font-weight: 900; font-size: 1.12rem; line-height: 1.2; margin: 0 0 .1rem; }
-.face.front.art .csec { padding-top: .45rem; }
-.face.front.art .cfoot { border: 0; background: none; padding: .35rem 0 0; font-size: .66rem; }
+.face.front.art .cbody { padding: .1em 0 .3em; gap: .45em; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.face.front.art .cbody .do { font-size: 1.02em; line-height: 1.38; }
+.face.front.art .cbody p { font-size: .93em; line-height: 1.42; }
+.face.front.art .cbody .eyebrow { font-size: .7em; }
+.face.front.art .ctitle { font-family: var(--display); font-weight: 900; font-size: 1.12em; line-height: 1.2; margin: 0 0 .1em; }
+.face.front.art .csec { padding-top: .45em; }
+.face.front.art .tip { color: var(--muted); font-style: italic; margin-top: auto; }
+.face.front.art .cfoot { border: 0; background: none; padding: .35em 0 0; font-size: .66em; flex: none; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* Back: frame drawn in the colours sampled from the art, emblem in the middle */
 .face.back.art-back { background: radial-gradient(120% 80% at 50% 38%, color-mix(in srgb, var(--bk) 82%, #fff) 0%, var(--bk) 60%); background-color: var(--bk);
-  border: calc(var(--w) * .014) solid var(--rim); border-radius: calc(var(--w) * .065); gap: calc(var(--w) * .05); padding-bottom: calc(var(--w) * .1); }
+  height: var(--ch); min-height: 0; border: calc(var(--w) * .014) solid var(--rim); border-radius: calc(var(--w) * .065); gap: calc(var(--w) * .05); padding-bottom: calc(var(--w) * .1); }
 .face.back.art-back::before { inset: calc(var(--w) * .05); border: 3px solid rgba(255,255,255,.95); border-radius: calc(var(--w) * .045); }
 .art-back .emb { display: block; width: calc(var(--w) * .62); max-width: calc(var(--w) * .42 * var(--ea)); aspect-ratio: var(--ea); background: var(--emb) center / contain no-repeat; margin-top: calc(var(--w) * .12); }
 .art-back .who { position: relative; color: #fff; font-family: var(--display); font-weight: 800; font-size: .95rem; opacity: .92; }

@@ -304,6 +304,18 @@ function artFor(o) {
     back: `--bk:${b.bg};--rim:${b.rim};--emb:url(${cardUrl('back-' + o.kind)});--ea:${b.emblemAspect}`
   };
 }
+// Every card is the same size, so long text is shrunk to fit (down to 70%), then scrolls inside the card.
+function fitCards(root = document) {
+  root.querySelectorAll('.face.front.art').forEach(face => {
+    const body = face.querySelector('.cbody'); if (!body) return;
+    let fit = 1; face.style.setProperty('--fit', 1);
+    while (body.scrollHeight > body.clientHeight + 1 && fit > 0.7) { fit = +(fit - 0.03).toFixed(2); face.style.setProperty('--fit', fit); }
+  });
+}
+let fitTimer = 0;
+const fitSoon = () => { cancelAnimationFrame(fitTimer); fitTimer = requestAnimationFrame(() => fitCards()); };
+addEventListener('resize', fitSoon);
+document.fonts?.ready.then(fitSoon);
 function cardHTML(o) {
   const backCls = { role: 'back-role', scenario: 'back-scenario', trainer: 'back-trainer' }[o.kind];
   const art = artFor(o);
@@ -340,9 +352,9 @@ function roleCard(view, { flipped, deal, id, action }) {
     return cardHTML({
       id: id || 'role-' + r.index, action, kind: 'trainer', color: t, sym: lead ? '★' : '◇', k: 'Trainer card', n: lead ? 'Lead Trainer' : 'Support Trainer', flipped, deal,
       back: { kind: 'Trainer card', who: view.me.name }, backMark: lead ? '★' : '◇',
-      body: `<p class="do">${lead ? 'Teach your planned lesson and respond to what happens in the class. You are being assessed.' : 'Help learners and back up the Lead Trainer. You get feedback, not a score.'}</p>
+      body: `<p class="do">${lead ? 'Teach your lesson and respond to what happens. You are being assessed.' : 'Help learners and back up the Lead Trainer. Feedback only, no score.'}</p>
         ${r.partnerName ? `<div class="csec"><div class="eyebrow">${lead ? 'Your Support Trainer' : 'Your Lead Trainer'}</div><p><b>${esc(r.partnerName)}</b></p></div>` : ''}
-        <div class="csec"><div class="eyebrow">Tips</div><p>Some learners hold secret cards. Watch the whole room. ${lead ? 'Use your Support Trainer when you need to.' : 'Check with the Lead Trainer before you step in.'} Your phone buzzes at 2 minutes left.</p></div>`,
+        <p class="tip">${lead ? 'Watch the whole room: some learners hold secret cards.' : 'Check with the Lead Trainer before stepping in.'}</p>`,
       foot: [`Round ${r.index}`, lead ? 'Assessed' : 'Feedback only']
     });
   }
@@ -351,8 +363,7 @@ function roleCard(view, { flipped, deal, id, action }) {
     id: id || 'role-' + r.index, action, kind: 'role', color: c, sym: info.sym, k: `Role card · ${c === 'normal' ? 'regular' : c}`, n: info.name, flipped, deal,
     back: { kind: 'Role card', who: view.me.name }, backMark: '?',
     body: `<p class="do">${esc(info.desc)}</p>
-      <div class="csec"><div class="eyebrow">How to play</div><p>${c === 'normal' ? 'Join in normally for the whole round.' : 'Join in normally. When a Scenario card arrives, flip it and act it out quietly.'}</p></div>
-      <div class="csec"><div class="eyebrow">Keep it safe</div><p>Stay realistic and respectful. No insults, no physical contact, nothing unsafe.</p></div>`,
+      <div class="csec"><div class="eyebrow">How to play</div><p>${c === 'normal' ? 'Join in normally for the whole round.' : 'Join in normally. When a Scenario card arrives, act it out quietly.'}</p></div>`,  // the safety reminder is shown under the card on the participant's phone
     foot: [`Round ${r.index}`, 'Keep it secret']
   });
 }
@@ -375,6 +386,7 @@ function render(force = false) {
   else app.innerHTML = renderStaff();
   window.scrollTo(0, y);
   paintLive();
+  fitSoon();
   if (S && S.kind === 'participant') maybeDeal();
 }
 document.addEventListener('focusout', () => setTimeout(() => { if (pendingRender && !fieldFocused() && !modalRoot.firstChild) render(true); }, 120));
@@ -904,8 +916,9 @@ function deckSheet() {
     <p class="small muted" style="margin:.3rem 0 .8rem">Every card participants can be dealt${S?.scenarios?.some(x => x.difficulty === 'custom') ? ', including this session’s custom cards' : ''}. Only evaluators can open this.</p>
     <div id="deck-body">${deckBody()}</div>`);
   modalRoot.querySelector('.sheet')?.classList.add('wide');
+  fitSoon();
 }
-function refreshDeck() { const b = $('#deck-body'); if (b) b.innerHTML = deckBody(); }
+function refreshDeck() { const b = $('#deck-body'); if (b) b.innerHTML = deckBody(); fitSoon(); }
 
 // ---------- course admin (read-only, every session) ----------
 // Course-wide settings set by the admin: grading rules and extra scenario cards (read by every evaluator screen)

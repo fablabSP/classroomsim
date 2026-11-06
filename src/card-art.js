@@ -105,17 +105,17 @@ export const CARD_ART = {
  },
  "trainer-lead": {
   "w": 640,
-  "h": 1018,
-  "top": 0.669,
-  "bottom": 0.9656,
+  "h": 827,
+  "top": 0.5925,
+  "bottom": 0.9577,
   "left": 0.0531,
   "right": 0.9469
  },
  "trainer-support": {
   "w": 640,
-  "h": 1016,
-  "top": 0.6683,
-  "bottom": 0.9656,
+  "h": 826,
+  "top": 0.592,
+  "bottom": 0.9576,
   "left": 0.0516,
   "right": 0.9453
  }

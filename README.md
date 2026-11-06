@@ -1,4 +1,4 @@
-# ClassroomSim 3.7
+# ClassroomSim 3.8
 
 Classroom role-play practice and Lead Trainer assessment for the CET *Leading and Assessing AI-Enabled Learning Experiences* course.
 
@@ -9,6 +9,12 @@ There are two interfaces:
 It is a web app **hosted on GitHub Pages**, built and published by GitHub itself. Nothing runs on your computer, and nothing is installed on phones: everyone just opens the link (or scans the QR code) in their normal web browser. **Firebase** (free Spark plan, no credit card) is used only as the real-time database, so cards reach phones instantly.
 
 ---
+
+## What's new in 3.8
+- **Every card is the same size** (2:3, like a playing card), front and back, whatever its type or amount of text.
+- Text scales with the card. If a card has more text than fits, the text shrinks a little (down to 70%); only very long custom cards scroll inside the card.
+- The trainer portraits are trimmed to head and shoulders (same proportion as the learner cards) so their text panel has room.
+- Card wording tightened. The "Keep it safe" reminder moved off the role card (it is already shown under the card on the phone).
 
 ## What's new in 3.7.1
 - Updated card art: scenario icons now match the role icons of the same colour (✕ red, ✋ yellow, ? blue, ! black, ✓ green), and the Support Trainer card is named to match the app.
@@ -216,7 +222,7 @@ To change the default of 60 minutes, edit `PARTICIPANT_MINUTES` in `src/logic.js
 ## Card artwork
 - Source images live in `art/source/` (one PNG per card, named like `role-red.png`, `scenario-blue.png`, `trainer-lead.png`, `back-role.png`).
 - To change a design: replace the PNG (keep the name and the white text panel), then run `python3 scripts/cards.py` and commit. The script trims the white surround, measures the white panel, and writes `public/cards/*.webp` plus `src/card-art.js`.
-- Fronts: the card picture and header are shown as-is; the white panel stretches if the text is long, so nothing is cut off.
+- Fronts: every card is shown at 2:3. The picture and header stay as drawn; the white panel is stretched or shortened to make up the height. Trainer portraits have a band trimmed just above their frame line (`TRIM` in `scripts/cards.py`). If you redraw a card, keep the picture area about the same height as now so the panel keeps enough room.
 - Backs: the frame is drawn in the colours taken from your design and your emblem is placed in the middle, so a back always matches its front's height when it flips.
 - Custom scenario cards (from an evaluator or CSV) use the scenario front of their colour.
 - About 340 KB in total. A phone only downloads the images for the cards it actually shows.
@@ -236,6 +242,7 @@ There are 3 card backs (role, scenario, trainer). Backs are the same for every c
 - **Anything shared by every phone (like the clock) goes in one shared document**, not copied into each phone's private document. Otherwise every Start or Pause costs one write per participant.
 - **A pop-up's background only closes on a real tap:** the press and the release must both be on the background, with no text selected. A click event fires on the common parent when you press inside and release outside, which used to close the pop-up while someone was selecting text.
 - **For packages with both CommonJS and ES builds, import the ES build when you need the default export** (`jspdf-autotable/es`). Bundling the CommonJS one gave `default is not a function` only when a PDF was made.
+- **Cards with a fixed size need text that fits:** keep card wording short, scale text with the card (`--w`), and shrink-to-fit before falling back to scrolling. Measuring at the deck's smaller size showed overflow that the phone size hid.
 - **Put a version stamp on image links that can change** (`cards/x.webp?v=3.7.1`). Otherwise phones keep showing the old picture from their cache after you upload new art.
 - **Never reuse a short class name for two things.** The page's "‹ Back" link style (`.back`) also matched card backs (`.face.back`), underlining the name on every card back. Scope shared names, e.g. `.face.back`, `button.back`.
 - **Card art shadows go on their own layer, not a `filter` on the card face.** A filter on a 3D-flipped face can flatten the flip on iOS, and a shadow drawn behind with `z-index:-1` still paints over the face's own background, so both the art and its shadow are pseudo-elements behind the text.
