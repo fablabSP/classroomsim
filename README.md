@@ -10,6 +10,9 @@ It is a web app **hosted on GitHub Pages**, built and published by GitHub itself
 
 ---
 
+## What's new in 3.8.1
+- **Observe tags in two columns:** for each rubric area, things to improve (−) on the left and strengths (+) on the right, with a column heading at the top.
+
 ## What's new in 3.8
 - **Every card is the same size** (2:3, like a playing card), front and back, whatever its type or amount of text.
 - Text scales with the card. If a card has more text than fits, the text shrinks a little (down to 70%); only very long custom cards scroll inside the card.

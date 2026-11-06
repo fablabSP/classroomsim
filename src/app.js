@@ -707,7 +707,11 @@ function viewObserve() {
     ${incs.length && !support ? `<section><h3 style="margin-bottom:.5rem">Cards to rate (${incs.length})</h3>${incs.map(i => rateBlock(i, r.index)).join('')}</section>` : ''}
     <div class="quick-actions"><div role="button" tabindex="0" class="btn btn-lg flagbtn" data-a="flag">${HAPT}⚑ Flag this moment</div><button class="btn btn-lg" data-a="note">✎ Write a note</button></div>
     <section class="card card-tight"><div class="pills">${['all', ...areas].map(a => `<button class="${(tagFilter === a || (a === 'all' && !areas.includes(tagFilter))) ? 'on' : ''}" data-a="tagfilter" data-v="${esc(a)}">${esc(a === 'all' ? 'All' : AREA_SHORT[a] || a)}</button>`).join('')}</div>
-      ${shown.map(a => `<div class="tag-group"><h4>${esc(a)}</h4><div class="tags">${tags.filter(t => t.competency === a).map(t => `<div role="button" tabindex="0" class="tag ${t.polarity === '+' ? 'plus' : 'minus'}" data-a="tag" data-id="${esc(t.id)}">${HAPT}<span class="pm" aria-label="${t.polarity === '+' ? 'strength' : 'to improve'}">${t.polarity === '+' ? '+' : '−'}</span><span>${esc(t.short)}</span>${counts[t.id] ? `<span class="cnt">${counts[t.id]}</span>` : ''}</div>`).join('')}</div></div>`).join('')}
+      <div class="tagcols-head" aria-hidden="true"><span class="minus"><b>−</b> To improve</span><span class="plus"><b>+</b> Strengths</span></div>
+      ${shown.map(a => { const tagBtn = t => `<div role="button" tabindex="0" class="tag ${t.polarity === '+' ? 'plus' : 'minus'}" data-a="tag" data-id="${esc(t.id)}">${HAPT}<span class="pm" aria-label="${t.polarity === '+' ? 'strength' : 'to improve'}">${t.polarity === '+' ? '+' : '−'}</span><span class="tl">${esc(t.short)}</span>${counts[t.id] ? `<span class="cnt">${counts[t.id]}</span>` : ''}</div>`;
+        const inArea = tags.filter(t => t.competency === a);
+        // Two columns: things to improve on the left, strengths on the right
+        return `<div class="tag-group"><h4>${esc(a)}</h4><div class="tagcols"><div class="tagcol minus">${inArea.filter(t => t.polarity !== '+').map(tagBtn).join('')}</div><div class="tagcol plus">${inArea.filter(t => t.polarity === '+').map(tagBtn).join('')}</div></div></div>`; }).join('')}
     </section>
   </div><div class="stack">
     <section class="card"><div class="card-head"><h3>Log</h3><span>${chip(r.observations.length + ' entries', 'info')} ${flaggedN ? chip('⚑ ' + flaggedN + ' flagged', 'warn') : ''}</span></div>

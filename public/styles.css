@@ -217,6 +217,15 @@ details[open] > summary::before { content: "−"; }
 .flagbtn { background: var(--sun-2); }
 .tag-group h4 { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin: .9rem 0 .45rem; }
 .tags { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .5rem; }
+/* Observe: two columns per area, to improve (left) and strengths (right) */
+.tagcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; align-items: start; }
+.tagcol { display: grid; gap: .5rem; min-width: 0; }
+.tagcols-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; margin-top: .8rem; position: sticky; top: 0; z-index: 2; }
+.tagcols-head span { font-family: var(--display); font-weight: 800; font-size: .82rem; text-align: center; padding: .35rem .4rem; border-radius: 10px; border: 2px solid var(--ink); }
+.tagcols-head .minus { background: var(--sun); color: var(--sun-ink); } .tagcols-head .plus { background: #9be2b4; color: var(--ink); }
+.tag .tl { min-width: 0; overflow-wrap: break-word; }
+.tagcol .tag { gap: .4rem; padding: .4rem .5rem; font-size: .88rem; min-height: 52px; }
+.tagcol .tag .pm { width: 24px; height: 24px; border-radius: 7px; }
 .tag { position: relative; display: flex; align-items: center; gap: .5rem; min-height: 58px; padding: .45rem .65rem; border-radius: 12px; border: 2px solid var(--ink); background: #fff; text-align: left; font-weight: 700; font-size: .93rem; line-height: 1.25; cursor: pointer; touch-action: manipulation; box-shadow: 2px 2px 0 var(--ink); }
 .tag .pm { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-weight: 900; flex: none; border: 2px solid var(--ink); }
 .tag.plus .pm { background: #9be2b4; } .tag.minus .pm { background: var(--sun); }
