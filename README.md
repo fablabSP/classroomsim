@@ -10,6 +10,10 @@ It is a web app **hosted on GitHub Pages**, built and published by GitHub itself
 
 ---
 
+## What's new in 3.3
+
+- **Better alerts on iPhones** (which can't be vibrated by websites): the screen pulses yellow and a chime repeats until the card is opened, with an Off/Soft/Loud setting. Evaluators get a **🔔 Nudge** button for cards not yet flipped. See [Phone alerts and vibration](#phone-alerts-and-vibration).
+
 ## What's new in 3.2
 
 - **Evaluator access locked down.** The evaluator code is now 10 characters (about 800 trillion combinations) instead of a 6-digit PIN, so it cannot be guessed by trying them all. Optional course-wide **start passcode** so only your evaluators can start sessions. Only the evaluator who started a session can change the code or remove evaluators, and removing someone changes the code automatically. Every assessment save is kept in a **change history**. See [Security](#security).
@@ -144,7 +148,13 @@ GitHub runs `npm test` (the logic and engine tests) on every commit and won't pu
 - **Android:** full vibration for new cards, plus short taps when buttons are pressed.
 - **iPhone:** Apple doesn't let websites vibrate. The [web-haptics](https://github.com/lochie/web-haptics) library and others use a trick: tapping a hidden iOS "switch" gives a haptic tick. Since **iOS 26.5**, Apple only gives that tick for a real finger tap. A tap made by code no longer counts ([ios-haptics PR #13](https://github.com/tijnjh/ios-haptics/pull/13), [haptics.kushagragolash.dev](https://haptics.kushagragolash.dev/)). So no website can buzz an iPhone when a card *arrives*. ClassroomSim therefore:
   - puts an invisible switch over every card and quick-log button, so **real taps** (flipping a card open, logging an observation) give a tick on iPhones with iOS 17.4 or later;
-  - alerts iPhones about new cards with a **chime, a screen flash and the full-screen card table**. Everyone taps **Turn on alerts** once and keeps the page open.
+  - alerts iPhones about new cards in other ways (all of this works on Android too):
+    - the **whole screen pulses yellow** until the card is flipped open (visible with the phone face up on the desk; the screen is kept awake);
+    - a **chime repeats every 5 seconds** until the card is opened (up to a minute). Choose **Off / Soft / Loud** in ⚙ Settings; Soft is the default because a loud chime can give a role away;
+    - if the person switches away and comes back while a card is waiting, it alerts **straight away**;
+    - evaluators see **"not flipped yet"** on each card in play and can tap **🔔 Nudge** to alert that phone again;
+    - after turning on alerts, iPhone users see short tips and a **Test my alert** button.
+  - Everyone taps **Turn on alerts** once and keeps the page open. A locked phone can't receive anything from a website; the alert plays as soon as it is unlocked.
 - The tick is a device feature I could not test here. Try it on an iPhone (Settings → Sounds & Haptics → System Haptics must be on).
 
 ## Rules from bugs we fixed

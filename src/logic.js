@@ -4,7 +4,7 @@ import SCENARIOS from './scenarios.js';
 import { QUICK_TAGS, RUBRIC, SUPPORT_AREA } from './quicktags.js';
 
 export { SCENARIOS, QUICK_TAGS, RUBRIC };
-export const VERSION = '3.2.0';
+export const VERSION = '3.3.0';
 export const COLORS = ['red', 'green', 'yellow', 'blue', 'black'];
 export const PHASES = ['explanation', 'discussion', 'independent', 'group', 'conclusion'];
 export const DURATIONS = [5, 10, 15, 20, 30];
@@ -135,7 +135,7 @@ export function participantView(s, pid) {
       isAssigned: Boolean(r.assignedAt), assignedAt: r.assignedAt,
       myRole: type === 'student' ? (r.roles[pid] || 'unassigned') : type,
       partnerName: type !== 'student' && r.assignedAt ? (type === 'lead' ? names.support : names.lead) : '',
-      incidents: r.incidents.filter(x => x.participantId === pid && x.status !== 'cancelled').map(x => ({ id: x.id, status: x.status, sentAt: x.sentAt, acknowledgedAt: x.acknowledgedAt, intervenedAt: x.intervenedAt, scenario: cat.find(y => y.id === x.scenarioId) || null }))
+      incidents: r.incidents.filter(x => x.participantId === pid && x.status !== 'cancelled').map(x => ({ id: x.id, status: x.status, sentAt: x.sentAt, acknowledgedAt: x.acknowledgedAt, intervenedAt: x.intervenedAt, nudgedAt: x.nudgedAt || null, scenario: cat.find(y => y.id === x.scenarioId) || null }))
     }
   };
 }
@@ -270,14 +270,14 @@ export function redact(s, who, now, presence = {}) {
     base.round.myRole = type === 'student' ? (r.roles[pid] || 'unassigned') : type;
     if (type !== 'student' && r.assignedAt) base.round.partnerName = type === 'lead' ? names.support : names.lead;
     const cat = catalog(s);
-    base.round.incidents = r.incidents.filter(x => x.participantId === pid && x.status !== 'cancelled').map(x => ({ id: x.id, status: x.status, sentAt: x.sentAt, acknowledgedAt: x.acknowledgedAt, intervenedAt: x.intervenedAt, scenario: cat.find(y => y.id === x.scenarioId) || null }));
+    base.round.incidents = r.incidents.filter(x => x.participantId === pid && x.status !== 'cancelled').map(x => ({ id: x.id, status: x.status, sentAt: x.sentAt, acknowledgedAt: x.acknowledgedAt, intervenedAt: x.intervenedAt, nudgedAt: x.nudgedAt || null, scenario: cat.find(y => y.id === x.scenarioId) || null }));
   }
   return base;
 }
 
 // ---------- commands ----------
 const EVAL_ACTIONS = new Set(['observe', 'editObservation', 'deleteObservation', 'rateIncident', 'assess']);
-const SEND_ACTIONS = new Set(['trigger', 'triggerActivity', 'resolve', 'cancel']); // instructor + evaluators
+const SEND_ACTIONS = new Set(['trigger', 'triggerActivity', 'resolve', 'cancel', 'nudge']); // instructor + evaluators
 export function isEvalAction(a) { return EVAL_ACTIONS.has(a); }
 
 const RATING_FIELDS = {
@@ -396,6 +396,11 @@ export function applyCommand(s, who, b, now) {
       const sc = shuffle(catalog(s).filter(x => x.phase === r.activity && x.color !== 'green' && freeColours.has(x.color)))[0];
       if (!sc) fail('No matching scenario for this lesson phase right now. Try another phase or pick one from the library.');
       activate(s, sc.id, null, 'activity', now, who.name); break;
+    }
+    case 'nudge': {
+      const inc = r.incidents.find(x => x.id === b.instanceId); if (!inc || inc.status !== 'active') fail('That card is no longer in play.');
+      inc.nudgedAt = now; inc.nudges = (inc.nudges || 0) + 1;
+      log(s, r, 'card-nudged', `${who.name} nudged ${nameOf(s, inc.participantId)} about ${inc.title}`, now); break;
     }
     case 'resolve': case 'cancel': {
       const inc = r.incidents.find(x => x.id === b.instanceId); if (!inc || inc.status !== 'active') fail('That scenario is no longer active.');

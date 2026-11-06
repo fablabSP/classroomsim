@@ -397,3 +397,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .93rem; }
 .hapt { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: .011; z-index: 6; cursor: pointer; border-radius: inherit; }
 .tag, .flagbtn { position: relative; }
 .flagbtn { user-select: none; }
+
+/* iPhone: no vibration, so a new card makes the whole screen pulse until it is flipped */
+.table-felt.calling { animation: callpulse 1.1s ease-in-out infinite; }
+@keyframes callpulse { 0%, 100% { background: rgba(12, 20, 32, .95); } 50% { background: rgba(255, 200, 61, .96); } }
+.table-felt.calling .msg { animation: none; }
+.iphone-tip { background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: .8rem .9rem; margin-bottom: 1.2rem; font-size: .95rem; }
+.iphone-tip ul { margin: .35rem 0 .5rem; padding-left: 1.2rem; }
+@media (prefers-reduced-motion: reduce) { .table-felt.calling { animation: none !important; background: rgba(255, 200, 61, .96); } .table-felt.calling .msg { color: var(--ink); } }

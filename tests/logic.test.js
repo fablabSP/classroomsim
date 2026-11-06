@@ -128,3 +128,20 @@ test('evaluator can send and resolve scenarios; manual mode stops the automatic 
   const r2 = L.applyCommand(s, who, { action: 'observe', text: 'started earlier', elapsedAt: 60000 }, now + 4000);
   assert.equal(s.round.observations.find(x => x.id === r2.observationId).elapsed, 60000);
 });
+
+test('nudge: evaluators can re-alert an unflipped card; the participant view carries it', () => {
+  const { s, ps, instr, now } = setup(8);
+  L.applyCommand(s, instr, { action: 'setTrainers', leadId: ps[0].id, supportId: ps[1].id }, now);
+  L.applyCommand(s, instr, { action: 'assignRoles' }, now);
+  L.applyCommand(s, instr, { action: 'start' }, now);
+  const ev = L.roleOf(s, L.joinEvaluator(s, 'Eva', s.evaluatorPin, now).token);
+  const red = L.SCENARIOS.find(x => x.color === 'red');
+  L.applyCommand(s, ev, { action: 'trigger', scenarioId: red.id }, now + 1000);
+  const inc = s.round.incidents[0];
+  L.applyCommand(s, ev, { action: 'nudge', instanceId: inc.id }, now + 20000);
+  L.applyCommand(s, ev, { action: 'nudge', instanceId: inc.id }, now + 30000);
+  assert.equal(inc.nudges, 2);
+  assert.equal(L.participantView(s, inc.participantId).round.incidents[0].nudgedAt, now + 30000);
+  L.applyCommand(s, instr, { action: 'resolve', instanceId: inc.id }, now + 31000);
+  assert.throws(() => L.applyCommand(s, ev, { action: 'nudge', instanceId: inc.id }, now + 32000), /no longer in play/);
+});

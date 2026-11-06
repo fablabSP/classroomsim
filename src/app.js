@@ -31,7 +31,9 @@ const RATE_WORDS = { quick: 'noticed quickly', late: 'noticed late', missed: 'no
 // ---------------- state ----------------
 let store = null, sess = null;
 let identity = load('cs_identity', null); // {code, kind: 'staff' | 'participant'}
-let prefs = Object.assign({ vibrate: true, sound: true, wake: true, text: 0 }, load('cs_prefs', {}));
+let prefs = Object.assign({ vibrate: true, sound: true, volume: 'soft', wake: true, text: 0 }, load('cs_prefs', {}));
+if (prefs.sound === false) prefs.volume = 'off';
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 let S = null, receivedAt = 0, online = navigator.onLine !== false;
 let view = null, landing = 'home', staffTab = 'new', evalTarget = 'lead', tagFilter = 'all', reviewIndex = null;
 let archived = null, archivedLoading = false, openStep = null, lastLogged = null, qrOnOpen = !!window.__OPEN_QR, sendFilter = 'all';
@@ -135,14 +137,15 @@ function unlockAlerts() {
   requestWake();
 }
 function beep(kind) {
-  if (!prefs.sound || !audioCtx) return;
+  if (prefs.volume === 'off' || !audioCtx) return;
+  const peak = prefs.volume === 'loud' ? 0.7 : 0.22;
   try {
     const notes = kind === 'scenario' ? [523, 659, 784, 1047] : kind === 'soft' ? [660] : [784, 1047];
     let t = audioCtx.currentTime + 0.01;
     for (const f of notes) {
       const o = audioCtx.createOscillator(), g = audioCtx.createGain();
       o.type = 'triangle'; o.frequency.value = f; o.connect(g).connect(audioCtx.destination);
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
       o.start(t); o.stop(t + 0.22); t += 0.13;
     }
   } catch {}
@@ -168,13 +171,31 @@ function titleAlert(msg) {
   clearInterval(titleTimer); let n = 0;
   titleTimer = setInterval(() => { document.title = n++ % 2 ? 'ClassroomSim' : '🔔 ' + msg; if (n > 12 || !document.hidden) { clearInterval(titleTimer); document.title = 'ClassroomSim'; } }, 900);
 }
-function notify(kind, msg) { buzz(kind); beep(kind); flash(); if (msg) { toast(msg); titleAlert(msg); } }
+function notify(kind, msg) { window.__csAlerts = (window.__csAlerts || 0) + 1; buzz(kind); beep(kind); flash(); if (msg) { toast(msg); titleAlert(msg); } }
+// Keep calling until the card is flipped open: every 5 s for up to a minute.
+// This matters most on iPhones, where a website cannot vibrate the phone.
+let callTimer = null;
+function startCalling(id) {
+  stopCalling(); let n = 0;
+  callTimer = setInterval(() => {
+    const inc = S?.round?.incidents?.find(x => x.id === id && x.status === 'active');
+    if (!inc || inc.acknowledgedAt || flipped().has(id) || ++n > 12) return stopCalling();
+    notify('scenario');
+  }, 5000);
+}
+function stopCalling() { clearInterval(callTimer); callTimer = null; }
 async function requestWake() {
   if (!prefs.wake || !('wakeLock' in navigator) || wakeLock) return;
   try { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } catch {}
 }
 function releaseWake() { try { wakeLock?.release(); } catch {} wakeLock = null; }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && alertsUnlocked) requestWake(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (alertsUnlocked) requestWake();
+  // Back on the page with a card still face down: alert straight away.
+  const waiting = S?.kind === 'participant' && (S.round?.incidents || []).find(x => x.status === 'active' && !x.acknowledgedAt && !flipped().has(x.id));
+  if (waiting) { notify('scenario'); startCalling(waiting.id); }
+});
 function ratingDone(i) { return !!(i.rating && i.rating.noticed && i.rating.response && i.rating.handledBy); }
 
 function detectAlerts(prev, next) {
@@ -182,7 +203,14 @@ function detectAlerts(prev, next) {
   if (!prev) { (r.incidents || []).forEach(i => seenIncidents.add(i.id)); return; }
   const pr = prev.round;
   if (next.kind === 'participant') {
-    for (const inc of r.incidents) if (inc.status === 'active' && !seenIncidents.has(inc.id)) { seenIncidents.add(inc.id); notify('scenario'); }
+    for (const inc of r.incidents) {
+      if (inc.status === 'active' && !seenIncidents.has(inc.id)) { seenIncidents.add(inc.id); notify('scenario'); startCalling(inc.id); continue; }
+      const before = pr.incidents.find(x => x.id === inc.id);
+      if (inc.status === 'active' && inc.nudgedAt && inc.nudgedAt !== before?.nudgedAt) {
+        if (flipped().has(inc.id)) notify('scenario', 'Reminder: please act out your card now');
+        else { notify('scenario', 'The evaluator is checking: open your new card'); startCalling(inc.id); }
+      }
+    }
     if (!pr.isAssigned && r.isAssigned) notify('role', next.me.type === 'student' ? 'Your role card has been dealt' : 'Your trainer card has been dealt');
     else if (pr.index !== r.index) notify('role', 'New round. Wait for your new card.');
     else if (pr.status !== r.status) {
@@ -376,7 +404,9 @@ const MODE_HINT = { practice: 'Practice: flexible. Deal any scenario card whenev
 // ---------- participant ----------
 function renderParticipant() {
   const head = `<div class="p-head"><div class="brand grow"><img src="${FAV}" alt="">ClassroomSim</div><span id="conn" class="dot ${online ? 'on' : 'off'}" title="Connection"></span><button class="btn btn-icon btn-quiet" data-a="settings" aria-label="Settings">⚙</button></div>`;
-  const enable = alertsUnlocked ? '' : `<button class="enable" data-a="enable-alerts"><span class="ico">🔔</span><span><b>Tap here to turn on alerts</b><br><span class="small">${canVibrate() ? 'Your phone will vibrate and chime when a card is dealt to you.' : 'Your phone will chime and flash when a card is dealt. (iPhones only allow a light tap, not full vibration.)'}</span></span></button>`;
+  const enable = alertsUnlocked
+    ? (isIOS || !canVibrate() ? `<div class="iphone-tip"><b>📱 On an iPhone?</b> iPhones don't let websites vibrate, so when a card is dealt:<ul><li>the screen <b>pulses yellow</b> and stays on</li><li>a <b>chime repeats</b> every few seconds until you open the card</li></ul>Keep this page open and your phone <b>face up</b>. <button class="btn btn-sm" data-a="test-alert">Test my alert</button> <button class="btn btn-sm btn-quiet" data-a="settings">Volume</button></div>` : '')
+    : `<button class="enable" data-a="enable-alerts"><span class="ico">🔔</span><span><b>Tap here to turn on alerts</b><br><span class="small">${canVibrate() && !isIOS ? 'Your phone will vibrate and chime when a card is dealt to you.' : 'Your screen will pulse and a chime will repeat until you open your card. (iPhones don’t allow websites to vibrate.)'}</span></span></button>`;
   if (S.waiting || S.pending) {
     return `<div class="p-page">${head}${enable}<div class="deck"><div class="slot"><div><div style="font-size:2rem">${S.pending ? '✋' : '⏳'}</div><h3>${S.pending ? 'Not in yet' : "You're signed in"}</h3><p class="small">${esc(S.pending ? S.message : 'Waiting for an evaluator’s screen to add you. Keep this page open.')}</p></div></div>
       ${S.pending ? `<form id="rename-form" class="card-actions"><label class="lbl" for="r-name">Change your name</label><input id="r-name" name="name" minlength="2" maxlength="64" value="${esc(S.me?.name || '')}"><button class="btn btn-primary" type="submit">Try again with this name</button></form>` : ''}</div>
@@ -414,7 +444,7 @@ function maybeDeal() {
   if (felt && felt.dataset.id === active.id) return;
   felt?.remove();
   const el = document.createElement('div');
-  el.id = 'table-felt'; el.className = 'table-felt'; el.dataset.id = active.id; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'New scenario card');
+  el.id = 'table-felt'; el.className = 'table-felt calling'; el.dataset.id = active.id; el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'New scenario card');
   el.innerHTML = `<div class="msg">🔔 You've been dealt a Scenario card</div>${scenarioCard(active.scenario, { id: active.id, deal: true, roundIndex: S.round.index, action: 'flip-new', who: S.me.name })}<p class="msg small" id="felt-hint" style="font-size:.95rem;font-weight:600">Only you can see this. Tap the card to flip it open.</p>`;
   document.body.appendChild(el);
 }
@@ -509,7 +539,7 @@ function showQR(fresh = false) {
 function liveList() {
   const act = S.round.incidents.filter(i => i.status === 'active');
   if (!act.length) return '<div class="empty">No cards in play. Learners are behaving normally.</div>';
-  return act.map(i => `<div class="incident"><span class="cbar ${esc(i.color)}"></span><div class="grow"><div class="t">${esc(i.title)}</div><div class="small muted">${esc(pname(i.participantId))} · ${i.acknowledgedAt ? '✓ flipped open' : '⏳ not flipped yet'}${i.intervenedAt ? ' · a trainer went over' : ''}${i.sentBy ? ' · dealt by ' + esc(i.sentBy) : ' · from timeline'} · <span data-age="${i.triggerElapsedMs}"></span> ago</div><div class="row" style="margin-top:.45rem"><button class="btn btn-sm btn-good" data-a="resolve" data-id="${esc(i.id)}">✓ Done, end it</button><button class="btn btn-sm btn-quiet" data-a="cancel" data-id="${esc(i.id)}">Cancel</button></div></div></div>`).join('') + '<p class="hint">A card ends by itself after 90 seconds.</p>';
+  return act.map(i => `<div class="incident"><span class="cbar ${esc(i.color)}"></span><div class="grow"><div class="t">${esc(i.title)}</div><div class="small muted">${esc(pname(i.participantId))} · ${i.acknowledgedAt ? '✓ flipped open' : '⏳ not flipped yet' + (i.nudges ? ` · nudged ×${i.nudges}` : '')}${i.intervenedAt ? ' · a trainer went over' : ''}${i.sentBy ? ' · dealt by ' + esc(i.sentBy) : ' · from timeline'} · <span data-age="${i.triggerElapsedMs}"></span> ago</div><div class="row" style="margin-top:.45rem">${i.acknowledgedAt ? '' : `<button class="btn btn-sm btn-primary" data-a="nudge" data-id="${esc(i.id)}">🔔 Nudge${i.nudges ? ' again' : ''}</button>`}<button class="btn btn-sm btn-good" data-a="resolve" data-id="${esc(i.id)}">✓ Done, end it</button><button class="btn btn-sm btn-quiet" data-a="cancel" data-id="${esc(i.id)}">Cancel</button></div></div></div>`).join('') + '<p class="hint">A card ends by itself after 90 seconds.</p>';
 }
 function sendPanel() {
   const r = S.round, live = r.status === 'running';
@@ -761,7 +791,7 @@ function settingsSheet() {
   modal(`<h2>Settings</h2>
     <div class="field"><span class="lbl">Text size</span>${seg('textsize', [[0, 'A'], [1, 'A+'], [2, 'A++']], prefs.text)}</div>
     ${sw('vibrate', 'Vibrate', canVibrate() ? 'Buzz when something needs your attention.' : 'iPhones only allow a light tap. The sound and screen flash still work.')}
-    ${sw('sound', 'Sound', 'A short chime with each alert.')}
+    <div class="field" style="margin-top:.6rem"><span class="lbl">Alert sound</span>${seg('volume', [['off', 'Off'], ['soft', 'Soft'], ['loud', 'Loud']], prefs.volume)}<p class="hint">Soft is easier to keep secret in class. The chime repeats until you open a new card.</p></div>
     ${sw('wake', 'Keep screen on', 'Stops the phone sleeping during a session.')}
     <div class="row" style="margin-top:1rem"><button class="btn grow" data-a="test-alert">🔔 Test alert</button></div>
     ${identity?.kind === 'staff' ? `<div class="divider"></div><button class="btn btn-primary btn-block" data-a="switchSession">Switch to another session or start a new one</button><p class="hint">This session keeps running. You can come back to it from "Your sessions on this device".</p>` : ''}
@@ -813,6 +843,7 @@ document.addEventListener('click', async e => {
     case 'resume': return cmd('resume');
     case 'end': if (await confirmBox('End this round now?', 'End round', true)) cmd('end'); return;
     case 'nextRound': if (await confirmBox('Start the next round? This one is saved and the trainers rotate.', 'Next round')) { const ok = await cmd('nextRound', {}, 'Next round ready'); if (ok) { view = 'setup'; render(true); } } return;
+    case 'nudge': return cmd('nudge', { instanceId: id }, `Nudged ${pname(S.round.incidents.find(x => x.id === id)?.participantId)}`);
     case 'resolve': case 'cancel': return cmd(a, { instanceId: id });
     case 'tagfilter': tagFilter = el.dataset.v; render(true); return;
     case 'target': evalTarget = el.dataset.v; tagFilter = 'all'; render(true); return;
@@ -865,7 +896,7 @@ document.addEventListener('click', async e => {
     case 'flip': { tapBuzz(); const now = !el.classList.contains('is-flipped'); el.classList.toggle('is-flipped', now); setFlipped(id, now); unlockAlerts(); setTimeout(() => render(true), 760); return; }
     case 'flip-new': {
       if (el.classList.contains('is-flipped')) return;
-      tapBuzz(); el.classList.remove('deal'); el.classList.add('is-flipped'); unlockAlerts(); setFlipped(id, true);
+      tapBuzz(); stopCalling(); document.getElementById('table-felt')?.classList.remove('calling'); el.classList.remove('deal'); el.classList.add('is-flipped'); unlockAlerts(); setFlipped(id, true);
       sess.acknowledge(id).catch(err => toast(err.message, true));
       const hint = document.getElementById('felt-hint');
       if (hint) hint.outerHTML = `<button class="btn btn-primary btn-lg" data-a="felt-close" style="width:min(84vw,340px)">Got it, I'll do it now</button>`;
@@ -883,6 +914,7 @@ async function onSeg(btn) {
   const markOn = () => group.querySelectorAll('button').forEach(b => { const on = b === btn; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
   if (name === 'c-dur') { createDraft.dur = Number(v); markOn(); return; }
   if (name === 'c-mode') { createDraft.mode = v; markOn(); const h = $('#mode-hint'); if (h) h.textContent = MODE_HINT[v]; return; }
+  if (name === 'volume') { prefs.volume = v; prefs.sound = v !== 'off'; save('cs_prefs', prefs); markOn(); unlockAlerts(); beep('role'); return; }
   if (name === 'textsize') { prefs.text = Number(v); save('cs_prefs', prefs); document.documentElement.dataset.text = v; markOn(); return; }
   if (name === 'phase') return cmd('activity', { phase: v });
   if (name === 'percolour') return cmd('setPerColour', { perColour: Number(v) }, 'Updated');
