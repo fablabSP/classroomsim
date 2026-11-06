@@ -21,6 +21,9 @@ export const paths = code => ({
 const plain = v => (v == null ? v : JSON.parse(JSON.stringify(v)));
 const isDenied = e => e && (e.code === 'permission-denied' || /permission/i.test(e.message || ''));
 const cleanCode = c => String(c || '').trim().toUpperCase();
+const RULES_MSG = 'The database rules have not been published yet. In Firebase: Firestore Database → Rules → paste in firestore.rules → Publish.';
+const NO_DB_MSG = 'The Firestore database has not been created yet. In Firebase: Build → Firestore Database → Create database.';
+const isNoDb = e => /does not exist|not-found|NOT_FOUND|failed-precondition/i.test((e?.code || '') + ' ' + (e?.message || ''));
 
 // ---------- joining ----------
 export async function createSession(store, form) {
@@ -40,8 +43,11 @@ export async function createSession(store, form) {
         { op: 'set', path: `${p.staff}/${store.uid}`, data: { name: s.instructorName, joinedAt: now, seenAt: now, owner: true } }
       ]);
     } catch (e) {
+      if (isNoDb(e)) throw new L.UserError(NO_DB_MSG);
       if (!isDenied(e)) throw e;
-      let taken = false; try { taken = !!(await store.getDoc(p.session)); } catch {}
+      let taken = false;
+      try { taken = !!(await store.getDoc(p.session)); }
+      catch (e2) { if (isNoDb(e2)) throw new L.UserError(NO_DB_MSG); throw new L.UserError(RULES_MSG); } // signed-in users may always read sessions/{code}
       if (taken) continue; // that session code is already in use: try another
       throw new L.UserError('That start passcode is not correct. Ask your course admin for it.', 403);
     }
@@ -53,7 +59,9 @@ export async function createSession(store, form) {
 
 async function sessionExists(store, code) {
   if (!/^[A-Z0-9]{6}$/.test(code)) throw new L.UserError('A session code has 6 letters and numbers.');
-  const d = await store.getDoc(paths(code).session);
+  let d;
+  try { d = await store.getDoc(paths(code).session); }
+  catch (e) { throw new L.UserError(isNoDb(e) ? NO_DB_MSG : isDenied(e) ? RULES_MSG : 'Could not reach the database. Check the internet connection and try again.'); }
   if (!d) throw new L.UserError('Session code not found. Check the code with your instructor.', 404);
   return d;
 }

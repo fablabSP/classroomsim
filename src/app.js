@@ -320,8 +320,9 @@ setInterval(() => { paintLive(); checkTimeWarnings(); }, 250);
 
 function renderBootError() {
   return `<div class="landing"><div class="land-in"><div class="brand"><img src="${FAV}" alt="">ClassroomSim</div>
-    <div class="card raised" style="margin-top:1.5rem"><h2>Can't connect yet</h2><p>${esc(bootError)}</p>
-    <p class="small muted">If you are setting this up: open <b>public/config.js</b> and paste your Firebase project's web app settings, and turn on <b>Anonymous</b> sign-in in Firebase Authentication. The README has the steps.</p>
+    <div class="card raised" style="margin-top:1.5rem"><h2>Can't connect yet</h2><p><b>${esc(bootError.message || bootError)}</b></p>
+    ${bootError.help ? `<div class="note" style="margin:.6rem 0"><b>How to fix it:</b> ${esc(bootError.help)}</div>` : ''}
+    <p class="small muted">Participants never see this once setup is done. ${bootError.code ? `Error code: <span class="mono">${esc(bootError.code)}</span>` : ''}</p>
     <button class="btn btn-primary" data-a="retry">Try again</button></div></div></div>`;
 }
 
@@ -942,9 +943,9 @@ document.addEventListener('submit', async e => {
 // ---------------- boot ----------------
 async function boot() {
   render(true);
-  if (!identity) { getStore().catch(e => { bootError = e.message; render(true); }); return; }
+  if (!identity) { getStore().catch(e => { store = null; bootError = { message: e.message, help: e.help, code: e.code }; render(true); }); return; }
   try { await getStore(); attach(); }
-  catch (e) { bootError = e.message || String(e); render(true); }
+  catch (e) { store = null; bootError = { message: e.message || String(e), help: e.help, code: e.code }; render(true); }
 }
 boot();
 }

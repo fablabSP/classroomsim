@@ -75,7 +75,8 @@ All earlier features are kept: guided setup with "What to do now", automatic or 
 1. On GitHub: **New repository** → name it e.g. `classroomsim` → **Public** → Create.
 2. **Add file → Upload files** → drag in everything from the unzipped `ClassroomSim_v3` folder → **Commit changes**.
    - Check the repository now has a `.github/workflows/deploy.yml` file. Some computers hide folders that start with a dot, so it can get left out. If it is missing: **Add file → Create new file**, type `.github/workflows/deploy.yml` as the name, paste in that file's contents, and commit.
-3. Open `public/config.js` in GitHub, click the ✏️ pencil, and replace the placeholder values with the ones from Firebase (Part A, step 6). **Commit changes**.
+3. Open `public/config.js` in GitHub and click the ✏️ pencil. Select the example `const firebaseConfig = { ... };` block and paste the `firebaseConfig` block from Firebase (Part A, step 6) over it. Pasting the whole Firebase snippet, import lines included, is fine too. **Commit changes**.
+   - After any change, wait for the green tick in the **Actions** tab, then reload the app. Phones may keep the old file for up to 10 minutes. If the app shows **Can't connect yet**, it now says exactly which step is missing.
 4. **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 5. Open the **Actions** tab. The "Publish to GitHub Pages" run starts by itself after each commit (or click **Run workflow**). When it shows a green tick, your app is live at
    **`https://<your-github-username>.github.io/classroomsim/`**
